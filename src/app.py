@@ -35,7 +35,7 @@ def dbconn():
                                    password=app.config['DATABASE_PASSWORD'],
                                    database=app.config['DATABASE_NAME'])
 
-@app.route('/api/v1.0.0/bicluster/<cluster_id>')
+@app.route('/bicluster/<cluster_id>')
 def bicluster_info(cluster_id):
     """all genes in the specified bicluster"""
     conn = dbconn()
@@ -111,7 +111,7 @@ def bicluster_info(cluster_id):
         conn.close()
 
 
-@app.route('/api/v1.0.0/search/<term>')
+@app.route('/search/<term>')
 def simple_search(term):
     """retrieves the type of the term or empty result if not found"""
     conn = dbconn()
@@ -156,7 +156,7 @@ def simple_search(term):
         conn.close()
 
 
-@app.route('/api/v1.0.0/cfsearch/<term>')
+@app.route('/cfsearch/<term>')
 def causal_flow_search(term):
     """retrieves all causal flows related to the search term"""
     conn = dbconn()
@@ -256,7 +256,7 @@ def causal_flow_search(term):
         conn.close()
 
 
-@app.route('/api/v1.0.0/causal_flows_with_program/<program>')
+@app.route('/causal_flows_with_program/<program>')
 def causal_flows_with_program(program):
     """retrieves all causal flows containing this program"""
     conn = dbconn()
@@ -282,7 +282,7 @@ def causal_flows_with_program(program):
         conn.close()
 
 
-@app.route('/api/v1.0.0/completions/<term>')
+@app.route('/completions/<term>')
 def completions(term):
     """this is a function to serve the jquery autocomplete box"""
     conn = dbconn()
@@ -321,7 +321,7 @@ def completions(term):
         conn.close()
 
 
-@app.route('/api/v1.0.0/biclusters')
+@app.route('/biclusters')
 def biclusters():
     """all biclusters in the system"""
     conn = dbconn()
@@ -336,7 +336,7 @@ def biclusters():
         conn.close()
 
 
-@app.route('/api/v1.0.0/mutation/<mutation_name>')
+@app.route('/mutation/<mutation_name>')
 def mutation(mutation_name):
     """information for the specified mutation"""
     conn = dbconn()
@@ -355,7 +355,7 @@ def mutation(mutation_name):
         conn.close()
 
 
-@app.route('/api/v1.0.0/regulator/<tf_name>')
+@app.route('/regulator/<tf_name>')
 def regulator(tf_name):
     """information for the specified mutation"""
     conn = dbconn()
@@ -383,7 +383,7 @@ def regulator(tf_name):
         conn.close()
 
 
-@app.route('/api/v1.0.0/program/<prognum>')
+@app.route('/program/<prognum>')
 def program(prognum):
     """information for the specified mutation"""
     conn = dbconn()
@@ -409,7 +409,7 @@ def program(prognum):
         cursor.close()
         conn.close()
 
-@app.route('/api/v1.0.0/summary')
+@app.route('/summary')
 def summary():
     """model summary"""
     conn = dbconn()
@@ -421,17 +421,18 @@ def summary():
         num_regulators = cursor.fetchone()[0]
         cursor.execute('select count(*) from mutations')
         num_mutations = cursor.fetchone()[0]
+        """
         cursor.execute('select count(*) from patients')
         num_patients = cursor.fetchone()[0]
         cursor.execute('select count(*) from bc_mutation_tf bmt join biclusters bc on bmt.bicluster_id=bc.id join mutations mut on bmt.mutation_id=mut.id join tfs on bmt.tf_id=tfs.id join bc_tf on bc.id=bc_tf.bicluster_id and tfs.id=bc_tf.tf_id left join genes g on g.ensembl_id=tfs.name')
-        num_causal_flows = cursor.fetchone()[0]
-        cursor.execute('select count(distinct trans_program) from biclusters')
+        num_causal_flows = cursor.fetchone()[0]"""
+        cursor.execute('select count(*) from trans_programs')
         num_trans_programs = cursor.fetchone()[0]
         return jsonify(num_biclusters=num_biclusters,
                        num_regulators=num_regulators,
                        num_mutations=num_mutations,
-                       num_patients=num_patients,
-                       num_causal_flows=num_causal_flows,
+                       #num_patients=num_patients,
+                       #num_causal_flows=num_causal_flows,
                        num_trans_programs=num_trans_programs)
     finally:
         cursor.close()
