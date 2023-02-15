@@ -263,7 +263,20 @@ def causal_flows_with_program(program):
     cursor = conn.cursor()
     try:
         # search causal flows by regulon genes
-        cursor.execute("""select bc.name,mut.name,tfs.name,g.preferred,bmt.role,bc_tf.role,bc.cox_hazard_ratio,bgg.num_genes,bc.trans_program from bc_mutation_tf bmt join biclusters bc on bmt.bicluster_id=bc.id join mutations mut on bmt.mutation_id=mut.id join tfs on bmt.tf_id=tfs.id join bc_tf on bc.id=bc_tf.bicluster_id and tfs.id=bc_tf.tf_id join (select bc.id,count(bg.gene_id) as num_genes from biclusters bc join bicluster_genes bg on bc.id=bg.bicluster_id group by bc.id) as bgg on bc.id=bgg.id left join genes g on g.ensembl_id=tfs.name where bc.trans_program=%s""", [program])
+        cursor.execute("""
+        select bc.name,mut.name,tfs.name,g.preferred,bmt.role,bc_tf.role,bc.cox_hazard_ratio,bgg.num_genes
+        from bc_mutation_tf bmt
+        join biclusters bc on bmt.bicluster_id=bc.id
+        join mutations mut on bmt.mutation_id=mut.id
+        join tfs on bmt.tf_id=tfs.id join bc_tf on bc.id=bc_tf.bicluster_id and tfs.id=bc_tf.tf_id
+        join
+          (select bc.id,count(bg.gene_id) as num_genes
+           from biclusters bc
+           join bicluster_genes bg on bc.id=bg.bicluster_id group by bc.id) as bgg
+        on bc.id=bgg.id
+        left join genes g on g.ensembl_id=tfs.name
+        where bc.id in (select bicluster_id from bicluster_programs bp join trans_programs p on bp.program_id=p.id where p.name=%s)""",
+                       [program])
         result = [{
             'bicluster': bc,
             'mutation': mut,
@@ -273,8 +286,8 @@ def causal_flows_with_program(program):
             'regulator_role': REGULATOR_ROLES[tf_role],
             'hazard_ratio': hratio,
             'num_genes': ngenes,
-            'trans_program': trans_program
-        } for bc,mut,tf,tf_preferred,mut_role,tf_role,hratio,ngenes, trans_program in cursor.fetchall()]
+            'trans_program': program
+        } for bc,mut,tf,tf_preferred,mut_role,tf_role,hratio,ngenes in cursor.fetchall()]
 
         return jsonify(entries=result)
     finally:
@@ -383,14 +396,22 @@ def regulator(tf_name):
         conn.close()
 
 
-@app.route('/program/<prognum>')
-def program(prognum):
-    """information for the specified mutation"""
+@app.route('/program/<progname>')
+def program(progname):
+    """information for the specified program"""
     conn = dbconn()
     cursor = conn.cursor()
     try:
-        prognum = int(prognum)
-        cursor.execute('select bc.id,name,bc.cox_hazard_ratio,num_genes,num_causal_flows from biclusters bc join (select bicluster_id, count(gene_id) as num_genes from bicluster_genes group by bicluster_id) as bcg on bc.id=bcg.bicluster_id join (select bicluster_id, count(*) as num_causal_flows from bc_mutation_tf group by bicluster_id) as bccf on bc.id=bccf.bicluster_id where bc.trans_program=%s', [prognum])
+        cursor.execute("""
+        select bc.id,name,bc.cox_hazard_ratio,num_genes,num_causal_flows
+          from biclusters bc
+          join (select bicluster_id, count(gene_id) as num_genes from bicluster_genes
+          group by bicluster_id) as bcg on bc.id=bcg.bicluster_id
+          join (select bicluster_id, count(*) as num_causal_flows
+          from bc_mutation_tf
+          group by bicluster_id) as bccf on bc.id=bccf.bicluster_id
+          where bc.id in (select bicluster_id from bicluster_programs bp join trans_programs p on bp.program_id=p.id where p.name=%s)""",
+                       [progname])
 
         regulons = []
         genes = []
@@ -401,7 +422,10 @@ def program(prognum):
                 'cox_hazard_ratio': cox_hazard_ratio,
                 'num_genes': num_genes,
                 'num_causal_flows': num_causal_flows})
-        cursor.execute('select distinct ensembl_id,entrez_id,preferred from genes where id in (select id from biclusters where trans_program=%s)', [prognum])
+        cursor.execute("""
+        select distinct ensembl_id,entrez_id,preferred from genes g join
+        bicluster_genes bg on g.id=bg.gene_id
+        where bg.bicluster_id in (select bicluster_id from bicluster_programs bp join trans_programs p on bp.program_id=p.id where p.name=%s)""", [progname])
         for ensembl_id, entrez_id, preferred in cursor.fetchall():
             genes.append({'ensembl_id': ensembl_id, 'entrez_id': entrez_id, 'preferred': preferred})
         return jsonify(regulons=regulons, genes=genes, num_genes=len(genes), num_regulons=len(regulons))
@@ -439,7 +463,7 @@ def summary():
         conn.close()
 
 
-@app.route('/api/v1.0.0/gene_info/<gene_name>')
+@app.route('/gene_info/<gene_name>')
 def gene_info(gene_name):
     """return all biclusters that contain this gene"""
     conn = dbconn()
@@ -489,7 +513,7 @@ def gene_info(gene_name):
         conn.close()
 
 
-@app.route('/api/v1.0.0/biclusters_for_gene/<gene_name>')
+@app.route('/biclusters_for_gene/<gene_name>')
 def biclusters_for_gene(gene_name):
     """return all biclusters that contain this gene"""
     conn = dbconn()
@@ -504,7 +528,7 @@ def biclusters_for_gene(gene_name):
         conn.close()
 
 
-@app.route('/api/v1.0.0/bicluster_network/<cluster_id>')
+@app.route('/bicluster_network/<cluster_id>')
 def bicluster_network(cluster_id):
     """all genes in the specified bicluster"""
     conn = dbconn()
@@ -538,7 +562,7 @@ def bicluster_network(cluster_id):
         conn.close()
 
 
-@app.route('/api/v1.0.0/bicluster_expressions/<cluster_id>')
+@app.route('/bicluster_expressions/<cluster_id>')
 def bicluster_expression_data(cluster_id):
     """returns data plot data in Highcharts format for bicluster expressions"""
     """this is actually box plot data, so the series needs to be a list of
@@ -558,7 +582,7 @@ def bicluster_expression_data(cluster_id):
         conn.close()
 
 
-@app.route('/api/v1.0.0/bicluster_enrichment/<cluster_id>')
+@app.route('/bicluster_enrichment/<cluster_id>')
 def bicluster_enrichment(cluster_id):
     """returns barplot enrichment data for tumor subtypes in quitiles
     for the given bicluster"""
@@ -574,7 +598,7 @@ def bicluster_enrichment(cluster_id):
     return jsonify(expressions=series, conditions=conds)
 
 
-@app.route('/api/v1.0.0/patient/<patient_id>')
+@app.route('/patient/<patient_id>')
 def patient_info(patient_id):
     """patient information"""
     conn = dbconn()
@@ -597,7 +621,7 @@ MUTATION_ROLES = {1: 'down-regulates', 2: 'up-regulates'}
 REGULATOR_ROLES = {1: 'activates', 2: 'represses'}
 
 # TODO: This should actually be simply a pregenerated JSON file
-@app.route('/api/v1.0.0/causal_flow')
+@app.route('/causal_flow')
 def causal_flow():
     """causal flow"""
     conn = dbconn()
@@ -620,7 +644,7 @@ def causal_flow():
         conn.close()
 
 
-@app.route('/api/v1.0.0/bicluster_patients/<cluster_id>')
+@app.route('/bicluster_patients/<cluster_id>')
 def bicluster_patients(cluster_id):
     """returns the information for all the patients in the specified bicluster"""
     conn = dbconn()
@@ -637,7 +661,7 @@ def bicluster_patients(cluster_id):
         conn.close()
 
 
-@app.route('/api/v1.0.0/bicluster_patient_survival/<cluster_id>')
+@app.route('/bicluster_patient_survival/<cluster_id>')
 def bicluster_patient_survival(cluster_id):
     """returns the information for all the patients in the specified bicluster"""
     conn = dbconn()
@@ -651,7 +675,7 @@ def bicluster_patient_survival(cluster_id):
         conn.close()
 
 
-@app.route('/api/v1.0.0/bicluster_patient_ages/<cluster_id>')
+@app.route('/bicluster_patient_ages/<cluster_id>')
 def bicluster_patient_ages(cluster_id):
     """returns the information for all the patients in the specified bicluster"""
     conn = dbconn()
@@ -665,7 +689,7 @@ def bicluster_patient_ages(cluster_id):
         conn.close()
 
 
-@app.route('/api/v1.0.0/bicluster_patient_status/<cluster_id>')
+@app.route('/bicluster_patient_status/<cluster_id>')
 def bicluster_patient_status(cluster_id):
     """returns the information for all the patients in the specified bicluster"""
     conn = dbconn()
