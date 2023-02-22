@@ -247,8 +247,33 @@ def import_transcriptional_programs(conn, regulons, args):
                     programs[progname] = cur.lastrowid
                 cur.execute('insert into bicluster_programs (bicluster_id, program_id) values (%s,%s)', [regulon_id, programs[progname]])
         conn.commit()
+    return programs
 
+def import_regulons_programs_genes_disease_mapping(conn,
+                                                   regulons, programs, genes,
+                                                   args):
+    df = pd.read_csv(os.path.join(args.indir, 'regulons_programs_genes_disease_mapping.csv'),
+                     sep=',', header=0)
+    with conn.cursor() as cur:
+        cur.execute('select count(*) from bc_program_genes')
+        num_entries = cur.fetchone()[0]
+        if num_entries > 0:
+            return  # Skip, we already imported
+        for index, row in df.iterrows():
+            regulon = 'R-%d' % row['Regulon_ID']
+            gene = row['Gene']
+            program = 'P-%d' % row['Programs']
+            regulon_id = regulons[regulon][0]
+            gene_id = genes[gene][0]
+            program_id = programs[program]
+            is_disease_relevant = row['is_disease_relevant']
+            print("GENEID: ", gene_id)
+            print("REGID: ", regulon_id)
+            print("PROGID: ", program_id)
+            cur.execute('insert into bc_program_genes (bicluster_id,program_id,gene_id,is_disease_relevant) values (%s,%s,%s,%s)', [regulon_id, program_id, gene_id, 1 if is_disease_relevant != 'False' else 0])
+        conn.commit()
 
+"""
 def import_drug_enrichment(conn, df, regulons):
     print('import drug enrichment')
     regulon2drugs = defaultdict(set)
@@ -287,8 +312,9 @@ def import_drug_enrichment(conn, df, regulons):
                 cur.execute('insert into regulon_drugs (regulon_id, drug_id) values (%s,%s)',
                             [regulon_id, drug_id])
         conn.commit()
+"""
 
-
+"""
 def import_target_class_enrichment(conn, df, regulons):
     print('import target class enrichment')
 
@@ -324,19 +350,9 @@ def import_target_class_enrichment(conn, df, regulons):
                 cur.execute('insert into regulon_target_class (regulon_id,target_class_id,pval) values (%s,%s,%s)',
                             [regulon_id, tc_id, pval])
         conn.commit()
+"""
 
-
-def parse_list(s):
-    try:
-        if not np.isnan(s):
-            result = s.split(',')
-        else:
-            result = []
-    except:
-        result = s.split(',')
-    return result
-
-
+"""
 def import_hallmarks_enrichment(conn, df, regulons):
     print('import hallmarks enrichment')
     reg_hallmarks = defaultdict(set)
@@ -386,8 +402,9 @@ def import_hallmarks_enrichment(conn, df, regulons):
                 cur.execute('insert into regulon_lin_hallmarks (regulon_id,hallmark_id) values (%s,%s)',
                             [regulon_id, hm_id])
         conn.commit()
+"""
 
-
+"""
 def import_mechanism_of_action_enrichment(conn, df, regulons):
     print('import mechanism of action enrichment')
 
@@ -420,9 +437,8 @@ def import_mechanism_of_action_enrichment(conn, df, regulons):
                             [regulon_id, moa_id])
 
         conn.commit()
+"""
 
-
-#DBNAME = 'mm_api_v3'
 DBNAME = 'gbm_api'
 
 HEADERS = [
@@ -485,7 +501,7 @@ def read_regulons(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
                                      description=DESCRIPTION)
-    parser.add_argument('indir', help="input file in CSV format")
+    parser.add_argument('indir', help="input directory")
     parser.add_argument('idconv', help="id conversion file")
     args = parser.parse_args()
     conn = dbconn()
@@ -510,7 +526,13 @@ if __name__ == '__main__':
     import_mutation_regulator(conn, df, regulons, mutations, tfs)
     import_regulon_regulator(conn, df, regulons, tfs)
     import_regulon_genes(conn, df, regulon_map, regulons, genes)
-    import_transcriptional_programs(conn, regulons, args)
+    programs = import_transcriptional_programs(conn, regulons, args)
+
+    import_regulons_programs_genes_disease_mapping(conn,
+                                                   regulons, programs, genes,
+                                                   args)
+
+
     """
     import_drug_enrichment(conn, df, regulons)
     import_target_class_enrichment(conn, df, regulons)

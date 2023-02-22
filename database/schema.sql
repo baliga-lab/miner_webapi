@@ -10,6 +10,8 @@ drop table if exists bicluster_genes;
 drop table if exists bicluster_programs;
 drop table if exists bc_mutation_tf;
 drop table if exists bc_tf;
+drop table if exists bc_tf_genes;
+drop table if exists bc_program_genes;
 drop table if exists drug_types;
 drop table if exists action_types;
 drop table if exists mechanisms_of_action;
@@ -49,6 +51,15 @@ create table bc_tf (
        tf_id integer not null references tfs,
        role integer not null references bc_tf_roles
 );
+
+create table bc_program_genes (
+       id integer primary key auto_increment,
+       bicluster_id integer not null references biclusters,
+       program_id integer not null references tfs,
+       gene_id integer not null references genes,
+       is_disease_relevant integer
+);
+
 
 /*
  * Drug model
