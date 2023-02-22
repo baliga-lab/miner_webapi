@@ -1,3 +1,24 @@
+drop table if exists mutations;
+drop table if exists biclusters;
+drop table if exists genes;
+drop table if exists tfs;
+drop table if exists trans_programs;
+drop table if exists bc_tf_roles;
+drop table if exists bc_tf_bc_roles;
+drop table if exists bc_mutation_tf_roles;
+drop table if exists bicluster_genes;
+drop table if exists bicluster_programs;
+drop table if exists bc_mutation_tf;
+drop table if exists bc_tf;
+drop table if exists drug_types;
+drop table if exists action_types;
+drop table if exists mechanisms_of_action;
+drop table if exists drug_targets;
+drop table if exists drug_regulons;
+drop table if exists drug_programs;
+drop table if exists drugs;
+drop table if exists target_type_models;
+
 create table mutations (id integer primary key auto_increment, name varchar(100) not null);
 create table biclusters (
   id integer primary key auto_increment,
@@ -29,6 +50,48 @@ create table bc_tf (
        role integer not null references bc_tf_roles
 );
 
+/*
+ * Drug model
+ */
+create table drug_types (id integer primary key auto_increment, name varchar(200));
+
+create table action_types (id integer primary key auto_increment, name varchar(200));
+
+create table target_type_models (id integer primary key auto_increment, name varchar(200));
+
+create table mechanisms_of_action (id integer primary key auto_increment, name varchar(200));
+
+create table drug_targets (
+  drug_id integer references drugs,
+  gene_id integer references genes
+);
+
+create table drug_regulons (
+  drug_id integer references drugs,
+  regulon_id integer references biclusters
+);
+
+create table drug_programs (
+  drug_id integer references drugs,
+  program_id integer references trans_programs
+);
+
+create table drugs (
+  id integer primary key auto_increment,
+  name varchar(200),
+  approved_symbol varchar(200),
+  approved integer,
+  max_trial_phase integer,
+  max_phase_gbm integer,
+  drug_type_id integer not null references drug_types,
+  action_type_id integer not null references action_types,
+  target_type_model_id integer not null references target_type_models
+);
+
+
+/*
+ * Pre-populate database
+ */
 insert into bc_mutation_tf_roles (id, name) values (1, 'down-regulates');
 insert into bc_mutation_tf_roles (id, name) values (2, 'up-regulates');
 

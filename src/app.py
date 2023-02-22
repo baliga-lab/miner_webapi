@@ -374,23 +374,21 @@ def regulator(tf_name):
     conn = dbconn()
     cursor = conn.cursor()
     try:
-        cursor.execute('select cox_hazard_ratio from tfs where name=%s', [tf_name])
-        hazard_ratio = cursor.fetchone()[0]
-        cursor.execute('select bc.name,bt.role,bc.cox_hazard_ratio,mut.name,bc.trans_program from bc_tf bt join biclusters bc on bt.bicluster_id=bc.id join tfs on bt.tf_id=tfs.id join bc_mutation_tf bmt on bmt.bicluster_id=bt.bicluster_id and bmt.tf_id=bt.tf_id join mutations mut on mut.id=bmt.mutation_id where tfs.name=%s',
+        cursor.execute('select bc.name,bt.role,bc.cox_hazard_ratio,mut.name from bc_tf bt join biclusters bc on bt.bicluster_id=bc.id join tfs on bt.tf_id=tfs.id join bc_mutation_tf bmt on bmt.bicluster_id=bt.bicluster_id and bmt.tf_id=bt.tf_id join mutations mut on mut.id=bmt.mutation_id where tfs.name=%s',
                        [tf_name])
-        result = [{"bicluster": bc, "role": TF_BC_ROLES[role],
-                   "hazard_ratio": bc_hazard_ratio,
-                   "mutation": mut,
-                   "trans_program": trans_program}
-                  for bc, role, bc_hazard_ratio, mut, trans_program in cursor.fetchall()]
+        result = [{
+            "bicluster": bc, "role": TF_BC_ROLES[role],
+            "hazard_ratio": bc_hazard_ratio,
+            "mutation": mut,
+        } for bc, role, bc_hazard_ratio, mut in cursor.fetchall()]
         cursor.execute('select preferred from genes where ensembl_id=%s', [tf_name])
         row = cursor.fetchone()
-        if row is not None:
+        if row is not None and row[0] is not None:
             reg_preferred = row[0]
         else:
             reg_preferred = tf_name
         return jsonify(regulator=tf_name, regulator_preferred=reg_preferred,
-                       hazard_ratio=hazard_ratio, entries=result)
+                       entries=result)
     finally:
         cursor.close()
         conn.close()
