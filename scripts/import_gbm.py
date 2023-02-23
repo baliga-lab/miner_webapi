@@ -339,6 +339,58 @@ def import_drugs(conn, df, drug_types, action_types, mechanisms_of_action, targe
 
     return result
 
+def import_drug_targets(conn, df, drugs, genes):
+    with conn.cursor() as cur:
+        cur.execute('select count(*) from drug_targets')
+        num_entries = cur.fetchone()[0]
+        if num_entries > 0:
+            return  # skip
+        seen = set()
+        for index, row in df.iterrows():
+            drug_id = drugs[row['Drug']]
+            try:
+                target_id = genes[row['targets']][0]
+                key = '%d-%d' % (drug_id, target_id)
+                if key not in seen:
+                    cur.execute('insert into drug_targets (drug_id, gene_id) values (%s,%s)', [drug_id, target_id])
+                    seen.add(key)
+            except KeyError:
+                pass  ## skip
+        conn.commit()
+
+
+def import_drug_regulons(conn, df, drugs, regulons):
+    with conn.cursor() as cur:
+        cur.execute('select count(*) from drug_regulons')
+        num_entries = cur.fetchone()[0]
+        if num_entries > 0:
+            return  # skip
+        seen = set()
+        for index, row in df.iterrows():
+            drug_id = drugs[row['Drug']]
+            regulon_id = regulons['R-%d' % row['Regulon_ID']][0]
+            key = '%d-%d' % (drug_id, regulon_id)
+            if key not in seen:
+                cur.execute('insert into drug_regulons (drug_id, regulon_id) values (%s,%s)', [drug_id, regulon_id])
+                seen.add(key)
+        conn.commit()
+
+def import_drug_programs(conn, df, drugs, programs):
+    with conn.cursor() as cur:
+        cur.execute('select count(*) from drug_programs')
+        num_entries = cur.fetchone()[0]
+        if num_entries > 0:
+            return  # skip
+        seen = set()
+        for index, row in df.iterrows():
+            drug_id = drugs[row['Drug']]
+            program_id = programs['P-%d' % row['Programs']]
+            key = '%d-%d' % (drug_id, program_id)
+            if key not in seen:
+                cur.execute('insert into drug_programs (drug_id,program_id) values (%s,%s)', [drug_id, program_id])
+                seen.add(key)
+        conn.commit()
+
 
 def import_drug_data(conn, regulons, programs, genes, args):
     df = pd.read_csv(os.path.join(args.indir, 'Drugs_Mapped_to_Network_for_Portal.csv'),
@@ -350,6 +402,9 @@ def import_drug_data(conn, regulons, programs, genes, args):
     target_type_models = import_target_type_models(conn, set(df["TargetTypeModel"]))
 
     drugs = import_drugs(conn, df, drug_types, action_types, mechanisms_of_action, target_type_models)
+    import_drug_targets(conn, df, drugs, genes)
+    import_drug_regulons(conn, df, drugs, regulons)
+    import_drug_programs(conn, df, drugs, programs)
 
 
 """
