@@ -273,46 +273,84 @@ def import_regulons_programs_genes_disease_mapping(conn,
             cur.execute('insert into bc_program_genes (bicluster_id,program_id,gene_id,is_disease_relevant) values (%s,%s,%s,%s)', [regulon_id, program_id, gene_id, 1 if is_disease_relevant != 'False' else 0])
         conn.commit()
 
-"""
-def import_drug_enrichment(conn, df, regulons):
-    print('import drug enrichment')
-    regulon2drugs = defaultdict(set)
-    all_drugs = set()
+
+def import_type_table(conn, table, values):
+    result = {}
     with conn.cursor() as cur:
-        cur.execute('select count(*) from regulon_drugs')
-        if cur.fetchone()[0] > 0:
-            print("drug enrichment already exists, skipping")
-            return
-        for index, row in df.iterrows():
-            regulon = row['Regulon']
-            regulon_id = regulons[regulon][0]
-            drugs = row['DrugEnrichment']
-            try:
-                if not np.isnan(drugs):
-                    # drugs are text
-                    drugs = drugs.split(',')
-                else:
-                    drugs = set()
-            except:
-                drugs = drugs.split(',')
+        cur.execute('select count(*) from %s' % table)
+        num_entries = cur.fetchone()[0]
+        if num_entries > 0:
+            cur.execute('select id, name from %s' % table)
+            for pk, name in cur.fetchall():
+                result[name] = pk
+        else:
+            for value in values:
+                cur.execute('insert into ' + table + ' (name) values (%s)', [value])
+                result[value] = cur.lastrowid
+            conn.commit()
 
-            regulon2drugs[regulon_id].update(drugs)
-            all_drugs.update(drugs)
+    return result
 
-        # insert all the drugs first
-        drug_ids = {}
-        for drug in all_drugs:
-            cur.execute('insert into drugs (name) values (%s)', [drug])
-            pk = cur.lastrowid
-            drug_ids[drug] = pk
+def import_drug_types(conn, values):
+    return import_type_table(conn, 'drug_types', values)
 
-        for regulon_id, drugs in regulon2drugs.items():
-            for drug in drugs:
-                drug_id = drug_ids[drug]
-                cur.execute('insert into regulon_drugs (regulon_id, drug_id) values (%s,%s)',
-                            [regulon_id, drug_id])
-        conn.commit()
-"""
+
+def import_action_types(conn, values):
+    return import_type_table(conn, 'action_types', values)
+
+
+def import_mechanisms_of_action(conn, values):
+    return import_type_table(conn, 'mechanisms_of_action', values)
+
+
+def import_target_type_models(conn, values):
+    return import_type_table(conn, 'target_type_models', values)
+
+
+def import_drugs(conn, df, drug_types, action_types, mechanisms_of_action, target_type_models):
+    result = {}
+    with conn.cursor() as cur:
+        cur.execute('select count(*) from drugs')
+        num_entries = cur.fetchone()[0]
+        if num_entries > 0:
+            cur.execute('select id,name from drugs')
+            for pk, name in cur.fetchall():
+                result[name] = pk
+        else:
+            for index, row in df.iterrows():
+                drug_name = row['Drug']
+                if drug_name in result:
+                    continue  # already inserted, skip
+                approved_symbol = row['approvedSymbol']
+                is_approved = row['isApproved'] == 'TRUE'
+                max_trial_phase = row['maximumClinicalTrialPhase']
+                if np.isnan(max_trial_phase):
+                    max_trial_phase = None
+                max_phase_gbm = row['maxPhaseGBM']
+                if np.isnan(max_phase_gbm):
+                    max_phase_gbm = None
+                drug_type_id = drug_types[row['drugType']]
+                action_type_id = action_types[row['actionType']]
+                mechanism_of_action_id = mechanisms_of_action[row['mechanismOfAction']]
+                target_type_model_id = target_type_models[row['TargetTypeModel']]
+                cur.execute('insert into drugs (name,approved_symbol,approved,max_trial_phase,max_phase_gbm,drug_type_id,action_type_id,target_type_model_id,mechanism_of_action_id) values (%s,%s,%s,%s,%s,%s,%s,%s,%s)', [drug_name, approved_symbol, 1 if is_approved else 0, max_trial_phase, max_phase_gbm, drug_type_id, action_type_id, mechanism_of_action_id, target_type_model_id])
+                result[drug_name] = cur.lastrowid
+            conn.commit()
+
+    return result
+
+
+def import_drug_data(conn, regulons, programs, genes, args):
+    df = pd.read_csv(os.path.join(args.indir, 'Drugs_Mapped_to_Network_for_Portal.csv'),
+                     sep=',', header=0)
+    drugs = set(df['Drug'])
+    drug_types = import_drug_types(conn, set(df['drugType']))
+    action_types = import_action_types(conn, set(df['actionType']))
+    mechanisms_of_action = import_mechanisms_of_action(conn, set(df["mechanismOfAction"]))
+    target_type_models = import_target_type_models(conn, set(df["TargetTypeModel"]))
+
+    drugs = import_drugs(conn, df, drug_types, action_types, mechanisms_of_action, target_type_models)
+
 
 """
 def import_target_class_enrichment(conn, df, regulons):
@@ -531,6 +569,7 @@ if __name__ == '__main__':
     import_regulons_programs_genes_disease_mapping(conn,
                                                    regulons, programs, genes,
                                                    args)
+    import_drug_data(conn, regulons, programs, genes, args)
 
 
     """

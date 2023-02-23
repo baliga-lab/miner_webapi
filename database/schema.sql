@@ -96,7 +96,8 @@ create table drugs (
   max_phase_gbm integer,
   drug_type_id integer not null references drug_types,
   action_type_id integer not null references action_types,
-  target_type_model_id integer not null references target_type_models
+  target_type_model_id integer not null references target_type_models,
+  mechanism_of_action_id integer not null references mechanisms_of_action
 );
 
 
