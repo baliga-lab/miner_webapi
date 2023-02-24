@@ -355,13 +355,13 @@ def mutation(mutation_name):
     conn = dbconn()
     cursor = conn.cursor()
     try:
-        cursor.execute('select tfs.name,g.preferred,bc.name,bmt.role,bc.cox_hazard_ratio,bc.trans_program from bc_mutation_tf bmt join biclusters bc on bmt.bicluster_id=bc.id join mutations m on m.id=bmt.mutation_id join tfs on tfs.id=bmt.tf_id left join genes g on tfs.name=g.ensembl_id where m.name=%s',
+        cursor.execute('select tfs.name,g.preferred,bc.name,bmt.role,bc.cox_hazard_ratio from bc_mutation_tf bmt join biclusters bc on bmt.bicluster_id=bc.id join mutations m on m.id=bmt.mutation_id join tfs on tfs.id=bmt.tf_id left join genes g on tfs.name=g.ensembl_id where m.name=%s',
                        [mutation_name])
         result = [{"regulator": tf, "regulator_preferred": tf_preferred if tf_preferred is not None else tf, "bicluster": bc,
                    "role": MUTATION_TF_ROLES[role],
                    "bc_cox_hazard_ratio": bc_cox_hazard_ratio,
-                   "trans_program": trans_program}
-                  for tf, tf_preferred, bc, role,bc_cox_hazard_ratio, trans_program in cursor.fetchall()]
+                   "trans_program": ""}  # trans_program is N:M TODO
+                  for tf, tf_preferred, bc, role,bc_cox_hazard_ratio in cursor.fetchall()]
         return jsonify(mutation=mutation_name, entries=result)
     finally:
         cursor.close()
