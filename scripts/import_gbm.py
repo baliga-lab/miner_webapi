@@ -11,20 +11,6 @@ from collections import defaultdict
 
 DESCRIPTION = "import_gbm - import filtered causal results to GBM backend"
 
-"""
-Tables in mm_api_v2:
-
-
-ignored for now (because patients are needed):
-
-patient_tf
-patients
-bicluster_patients
-bicluster_boxplot_data
-
-bc_tf_roles: 1 = activates, 2 = represses
-bc_mutation_tf_roles: 1 = down-regulates 2 = up-regulates
-"""
 
 def fill_roles(conn):
     with conn.cursor() as cur:
@@ -231,20 +217,20 @@ def import_regulon_genes(conn, df, regulon_map, regulons, genes):
 
 def import_transcriptional_programs(conn, regulons, args):
     with open(os.path.join(args.indir, 'transcriptional_programs.json')) as infile:
-        regulon2programs = json.load(infile)
+        program2regulons = json.load(infile)
     print('import transcriptional programs')
     result = {}
     programs = {}
     with conn.cursor() as cur:
-        for regulon_number, reg_programs in regulon2programs.items():
+        for program_number, prog_regulons in program2regulons.items():
             # add to database if necessary
-            regulon = 'R-%s' % regulon_number
-            regulon_id = regulons[regulon][0]
-            for program in reg_programs:
-                progname = "P-%s" % program
-                if progname not in programs:
-                    cur.execute('insert into trans_programs (name) values (%s)', [progname])
-                    programs[progname] = cur.lastrowid
+            progname = "P-%s" % program_number
+            if progname not in programs:
+                cur.execute('insert into trans_programs (name) values (%s)', [progname])
+                programs[progname] = cur.lastrowid
+            for regulon_number in prog_regulons:
+                regulon = "R-%s" % regulon_number
+                regulon_id = regulons[regulon][0]
                 cur.execute('insert into bicluster_programs (bicluster_id, program_id) values (%s,%s)', [regulon_id, programs[progname]])
         conn.commit()
     return programs
@@ -274,6 +260,14 @@ def import_regulons_programs_genes_disease_mapping(conn,
         conn.commit()
 
 
+def read_catalog_table_as_map(conn, table):
+    result = {}
+    with conn.cursor() as cur:
+        cur.execute('select id, name from %s' % table)
+        for pk, name in cur.fetchall():
+            result[name] = pk
+        return result
+
 def import_type_table(conn, table, values):
     result = {}
     with conn.cursor() as cur:
@@ -288,8 +282,8 @@ def import_type_table(conn, table, values):
                 cur.execute('insert into ' + table + ' (name) values (%s)', [value])
                 result[value] = cur.lastrowid
             conn.commit()
+        return result
 
-    return result
 
 def import_drug_types(conn, values):
     return import_type_table(conn, 'drug_types', values)
@@ -408,129 +402,33 @@ def import_drug_data(conn, regulons, programs, genes, args):
 
 
 """
-def import_target_class_enrichment(conn, df, regulons):
-    print('import target class enrichment')
-
-    regulon2targetclass = defaultdict(set)
-    all_targetclasses = set()
+CMF_ID, CMFlow, CMFlowType Mutation,
+Pathway,
+MutationSymbol, MutationEnsembl,
+RegulatorSymbol, RegulatorEnsembl,
+Regulon,
+MutationRegulatorEdge, -log10(p)_MutationRegulatorEdge, RegulatorRegulon_Spearman_R,
+RegulatorRegulon_Spearman_p-value, Regulon_stratification_t-statistic,
+-log10(p)_Regulon_stratification, Fraction_of_edges_correctly_aligned,
+Fraction_of_aligned_and_diff_exp_edges, number_downstream_regulons,
+number_differentially_expressed_regulons,
+"""
+def import_cmflows(conn, regulons, mutations, genes, tfs, filename, has_pathway=False):
     with conn.cursor() as cur:
-        cur.execute('select count(*) from regulon_target_class')
-        if cur.fetchone()[0] > 0:
-            print('regulon target class enrichment found, skipping')
-            return
+        cmflow_types = read_catalog_table_as_map(conn, "cm_flow_types")
+        cmf_pathways = read_catalog_table_as_map(conn, "cmf_pathways")
+
+        df = pd.read_csv(os.path.join(args.indir, filename),
+                         sep=',', header=0)
+        # 1. import cm_flow_types, note: load from database first
+        # 2. import cmf_pathways, note: load from database
+        # 3. import mutations, note: make sure they exist
+        # 4. import mutation genes, TODO: what to do if they exist as non-mutated genes ?
+        cur.execute('select id, name from cm_flow_types')
 
         for index, row in df.iterrows():
-            regulon = row['Regulon']
-            regulon_id = regulons[regulon][0]
-            enrich = row['TargetClassEnrichment']
-            pval = row['TargetClass_p-value']
-            try:
-                if np.isnan(enrich):
-                    enrich = None
-            except:
-                pass
-            if enrich is not None:
-                all_targetclasses.add(enrich)
-                regulon2targetclass[regulon_id].add((enrich, pval))
+            pass
 
-        tc_ids = {}
-        for tc in all_targetclasses:
-            cur.execute('insert into target_classes (name) values (%s)', [tc])
-            tc_ids[tc] = cur.lastrowid
-        for regulon_id, target_classes in regulon2targetclass.items():
-            for tc, pval in target_classes:
-                tc_id = tc_ids[tc]
-                cur.execute('insert into regulon_target_class (regulon_id,target_class_id,pval) values (%s,%s,%s)',
-                            [regulon_id, tc_id, pval])
-        conn.commit()
-"""
-
-"""
-def import_hallmarks_enrichment(conn, df, regulons):
-    print('import hallmarks enrichment')
-    reg_hallmarks = defaultdict(set)
-    reg_lin = defaultdict(set)
-    all_hallmarks = set()
-    all_lins = set()
-    hallmark_ids = {}
-    lin_hallmark_ids = {}
-
-    with conn.cursor() as cur:
-        cur.execute('select count(*) from regulon_hallmarks')
-        if cur.fetchone()[0] > 0:
-            print('entries exist, skipping')
-            return
-
-        for index, row in df.iterrows():
-            regulon = row['Regulon']
-            regulon_id = regulons[regulon][0]
-            enrich = row['HallmarksEnrichment']
-            lin_enrich = row['LinHallmarks']
-            enrich = parse_list(enrich)
-            lin_enrich = parse_list(lin_enrich)
-
-            all_hallmarks.update(enrich)
-            all_lins.update(lin_enrich)
-
-            reg_hallmarks[regulon_id].update(enrich)
-            reg_lin[regulon_id].update(lin_enrich)
-
-        for hm in all_hallmarks:
-            cur.execute('insert into hallmarks (name) values (%s)', [hm])
-            hallmark_ids[hm] = cur.lastrowid
-
-        for hm in all_lins:
-            cur.execute('insert into lin_hallmarks (name) values (%s)', [hm])
-            lin_hallmark_ids[hm] = cur.lastrowid
-
-        for regulon_id, hallmarks in reg_hallmarks.items():
-            for hm in hallmarks:
-                hm_id = hallmark_ids[hm]
-                cur.execute('insert into regulon_hallmarks (regulon_id,hallmark_id) values (%s,%s)',
-                            [regulon_id, hm_id])
-
-        for regulon_id, hallmarks in reg_lin.items():
-            for hm in hallmarks:
-                hm_id = lin_hallmark_ids[hm]
-                cur.execute('insert into regulon_lin_hallmarks (regulon_id,hallmark_id) values (%s,%s)',
-                            [regulon_id, hm_id])
-        conn.commit()
-"""
-
-"""
-def import_mechanism_of_action_enrichment(conn, df, regulons):
-    print('import mechanism of action enrichment')
-
-    all_moas = set()
-    regulon_moas = defaultdict(set)
-    moa_ids = {}
-
-    with conn.cursor() as cur:
-        cur.execute('select count(*) from regulon_mechanism_of_action')
-        if cur.fetchone()[0] > 0:
-            print('entries found, skipping')
-            return
-
-        for index, row in df.iterrows():
-            regulon = row['Regulon']
-            regulon_id = regulons[regulon][0]
-            enrich = row['MechanismOfActionEnrichment']
-            enrich = parse_list(enrich)
-            all_moas.update(enrich)
-            regulon_moas[regulon_id].update(enrich)
-
-        for moa in all_moas:
-            cur.execute('insert into mechanisms_of_action (name) values (%s)', [moa])
-            moa_ids[moa] = cur.lastrowid
-
-        for regulon_id, moas in regulon_moas.items():
-            for moa in moas:
-                moa_id = moa_ids[moa]
-                cur.execute('insert into regulon_mechanism_of_action (regulon_id,mechanism_of_action_id) values (%s,%s)',
-                            [regulon_id, moa_id])
-
-        conn.commit()
-"""
 
 DBNAME = 'gbm_api'
 
@@ -625,11 +523,5 @@ if __name__ == '__main__':
                                                    regulons, programs, genes,
                                                    args)
     import_drug_data(conn, regulons, programs, genes, args)
-
-
-    """
-    import_drug_enrichment(conn, df, regulons)
-    import_target_class_enrichment(conn, df, regulons)
-    import_hallmarks_enrichment(conn, df, regulons)
-    import_mechanism_of_action_enrichment(conn, df, regulons)
-    """
+    import_cmflows(conn, regulons, mutations, genes, tfs, "diseaseRelevantCMFlowsGenes.csv", False)
+    import_cmflows(conn, regulons, mutations, genes, tfs, "diseaseRelevantCMFlowsPathways.csv", True)

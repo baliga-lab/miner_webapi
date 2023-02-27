@@ -20,7 +20,13 @@ drop table if exists drug_regulons;
 drop table if exists drug_programs;
 drop table if exists drugs;
 drop table if exists target_type_models;
+drop table if exists cm_flow_types;
+drop table if exists cmf_pathways;
+drop table if exists cm_flows;
 
+
+
+/* Pathway mutations */
 create table mutations (id integer primary key auto_increment, name varchar(100) not null);
 create table biclusters (
   id integer primary key auto_increment,
@@ -31,7 +37,8 @@ create table genes (
        id integer primary key auto_increment,
        ensembl_id varchar(80) not null,
        entrez_id varchar(80),
-       preferred varchar(80)
+       preferred varchar(80),
+       is_mutation integer default 0
 );
 
 create table tfs (id integer primary key auto_increment, name varchar(50) not null);
@@ -109,3 +116,35 @@ insert into bc_mutation_tf_roles (id, name) values (2, 'up-regulates');
 
 insert into bc_tf_roles (id, name) values (1, 'activates');
 insert into bc_tf_roles (id, name) values (2, 'represses');
+
+/*
+Causal Mechanistic flow tables
+Involved are the Mutation with a Regulator and a Regulon and associated values
+The CM flow topology should be redundant with the regulator regulon mutation
+associations and this is mostly to have more data and more efficient ways to
+access the data
+*/
+create table cm_flow_types (id integer primary key auto_increment, name varchar(200));
+create table cmf_pathways (id integer primary key auto_increment, name varchar(200));
+
+create table cm_flows (
+  id integer primary key auto_increment,
+  cmf_id varchar(100),
+  cmf_name varchar(500),
+  cmf_type_id integer references cm_flow_types,
+  mutation_id integer references mutations, /* can be null */
+  cmf_pathway_id integer references cmf_pathways,
+  mutation_gene_id integer references genes, /* can be null */
+  tf_id integer references tfs,
+  bc_id integer references biclusters,
+  bc_mutation_tf_role_id integer references bc_mutation_tf_roles,
+  bc_mutation_tf_pvalue float,
+  bc_tf_spearman_r float,
+  bc_tf_spearman_pvalue float,
+  bc_t_statistic float,
+  bc_log10_p_stratification float,
+  fraction_edges_correctly_aligned integer,
+  fraction_aligned_diffexp_edges float,
+  num_downstream_regulons integer,
+  num_diffexp_regulons integer
+);
