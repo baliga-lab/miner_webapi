@@ -38,10 +38,11 @@ create table genes (
        ensembl_id varchar(80) not null,
        entrez_id varchar(80),
        preferred varchar(80),
-       is_mutation integer default 0
+       is_mutation integer default 0,
+       is_regulator integer default 0
 );
 
-create table tfs (id integer primary key auto_increment, name varchar(50) not null);
+create table tfs (id integer primary key auto_increment, name varchar(50) not null, symbol varchar(50));
 create table trans_programs (id integer primary key auto_increment, name varchar(10) not null);
 create table bc_tf_roles (id integer primary key auto_increment, name varchar(30) not null);
 create table bc_mutation_tf_roles (id integer primary key auto_increment, name varchar(50) not null);

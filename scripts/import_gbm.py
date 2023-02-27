@@ -23,12 +23,12 @@ def fill_roles(conn):
             cur.execute("insert into bc_mutation_tf_roles (id, name) values (2, 'up-regulates')")
             conn.commit()
 
-def import_tfs(conn, df):
+def import_tfs(conn, df, genes):
     """tfs: id: int, name: string, cox_hazard_ratio: float
-    In the import document this is the Regulator"""
-    tfs = set()
-    for index, row in df.iterrows():
-        tfs.add(row['Regulator'])
+    In the import document this is the Regulator
+    TODO: A regulon is actually a gene
+    """
+    tfs = set(df['Regulator'])
     result = {}
     with conn.cursor() as cur:
         cur.execute('select count(*) from tfs')
@@ -43,6 +43,9 @@ def import_tfs(conn, df):
             for tf in tfs:
                 cur.execute('insert into tfs (name) values (%s)', [tf])
                 result[tf] = cur.lastrowid
+                if tf in genes:
+                    gene_id = genes[tf][0]
+                    cur.execute('update genes set is_regulator=1 where id=%s', [gene_id])
             conn.commit()
     return result
 
@@ -402,7 +405,7 @@ def import_drug_data(conn, regulons, programs, genes, args):
 
 
 """
-CMF_ID, CMFlow, CMFlowType Mutation,
+CMF_ID, CMFlow, CMFlowType, Mutation,
 Pathway,
 MutationSymbol, MutationEnsembl,
 RegulatorSymbol, RegulatorEnsembl,
@@ -421,13 +424,79 @@ def import_cmflows(conn, regulons, mutations, genes, tfs, filename, has_pathway=
         df = pd.read_csv(os.path.join(args.indir, filename),
                          sep=',', header=0)
         # 1. import cm_flow_types, note: load from database first
+        df_flow_types = set(df['CMFlowType'])
+        for ftype in df_flow_types:
+            if not ftype in cmflow_types:
+                cur.execute('insert into cm_flow_types (name) values (%s)', [ftype])
+                pk = cur.lastrowid
+                cmflow_types[ftype] = pk
+        conn.commit()
+
         # 2. import cmf_pathways, note: load from database
+        if has_pathway:
+            df_pathways = set(df['Pathway'])
+            for pway in df_pathways:
+                if not pway in cmf_pathways:
+                    cur.execute('insert into cmf_pathways (name) values (%s)', [pway])
+                    pk = cur.lastrowid
+                    cmf_pathways[pway] = pk
+            conn.commit()
+
         # 3. import mutations, note: make sure they exist
-        # 4. import mutation genes, TODO: what to do if they exist as non-mutated genes ?
-        cur.execute('select id, name from cm_flow_types')
+        df_mutations = set(df['Mutation'])
+        for mutation in df_mutations:
+            if mutation not in mutations:
+                cur.execute('insert into mutations (name) values (%s)', [mutation])
+                pk = cur.lastrowid
+                mutations[mutation] = pk
+
+        # TODO: Check the TFS in genes
+        not_in_count = 0
+        df_regulators = set(df['RegulatorEnsembl'])
+        for reg in df_regulators:
+            if reg not in genes:
+                not_in_count += 1
+        print("# TFS not in genes: %d, total: %d" % (not_in_count, len(df_regulators)))
+
 
         for index, row in df.iterrows():
-            pass
+            cmf_id = row['CMF_ID']
+            cmf_name = row['CMFlow']
+            cmf_type_id = cmflow_types[row['CMFlowType']]
+            mutation_id = mutations[row['Mutation']]
+            if has_pathway:
+                cmf_pathway_id = cmf_pathways[row['Pathway']]
+            else:
+                cmf_pathway_id = None
+
+            # import mutation genes, TODO: what to do if they exist as non-mutated genes ?
+            # MutationSymbol, MutationEnsembl,
+            # mutation_gene_id is initialized here
+            mut_ens = row['MutationEnsembl']
+            mut_sym = row['MutationSymbol']
+            if mut_ens not in genes:
+                # TODO: insert into genes
+                pass
+            else:
+                # TODO: update as mutation gene
+                pass
+
+
+            # cur.execute("""insert into cm_flows (cmf_id,cmf_name,cmf_type_id,
+            # mutation_id,cmf_pathway_id,mutation_gene_id,tf_id,bc_id,
+            # bc_mutation_tf_role_id,bc_mutation_tf_pvalue,
+            # bc_tf_spearman_r,bc_tf_spearman_pvalue,
+            # bc_t_statistic,bc_log10_p_stratification,
+            # fraction_edges_correctly_aligned,fraction_aligned_diffexp_edges,
+            # num_downstream_regulons,num_diffexp_regulons) values
+            # (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            #             [cmf_id, cmf_name, cmf_type_id, mutation_id, cmf_pathway_id,
+            #              mutation_gene_id, tf_id, bc_id,
+            #              bc_mutation_tf_role_id, bc_mutation_tf_pvalue,
+            #              bc_tf_spearman_r, bc_tf_spearman_pvalue,
+            #              bc_t_statistic, bc_log10_p_stratification,
+            #              fraction_edges_correctly_aligned, fraction_aligned_diffexp_edges,
+            #              num_downstream_regulons, num_diffexp_regulons])
 
 
 DBNAME = 'gbm_api'
@@ -510,9 +579,9 @@ if __name__ == '__main__':
 
     # Step 1: collect the Regulator field
     fill_roles(conn)
-    tfs = import_tfs(conn, df)
     mutations = import_mutations(conn, df)
     genes = import_genes(conn, gene_names, ens2pref, ens2entrez)
+    tfs = import_tfs(conn, df, genes)
     regulons = import_regulons(conn, regulon_map, cox_map, mutations)
     import_mutation_regulator(conn, df, regulons, mutations, tfs)
     import_regulon_regulator(conn, df, regulons, tfs)
