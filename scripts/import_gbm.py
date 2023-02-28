@@ -71,11 +71,12 @@ def import_mutations(conn, df):
     return result
 
 
-def import_genes(conn, genes, ens2pref, ens2entrez):
-    """genes: id: int, ensembl_id: string, entrez_id: string, preferred: string
+def import_genes(conn, ens_genes, ens2pref, ens2entrez):
+    """
+    genes: id: int, ensembl_id: string, entrez_id: string, preferred: string
     In the import document this is the Regulator
     """
-    print("# unique genes found: %d" % len(genes))
+    print("# unique genes found: %d" % len(ens_genes))
 
     result = {}
     with conn.cursor() as cur:
@@ -87,7 +88,7 @@ def import_genes(conn, genes, ens2pref, ens2entrez):
                 result[ens] = (pk, entrez, pref)
         else:
             print("Genes not found, inserting into database")
-            for ens in sorted(genes):
+            for ens in sorted(ens_genes):
                 try:
                     entrez = ens2entrez[ens]
                 except:
@@ -415,6 +416,18 @@ RegulatorRegulon_Spearman_p-value, Regulon_stratification_t-statistic,
 -log10(p)_Regulon_stratification, Fraction_of_edges_correctly_aligned,
 Fraction_of_aligned_and_diff_exp_edges, number_downstream_regulons,
 number_differentially_expressed_regulons,
+
+
+
+'-log10(p)_MutationRegulatorEdge', 'RegulatorRegulon_Spearman_R',
+       'RegulatorRegulon_Spearman_p-value',
+       'Regulon_stratification_t-statistic',
+       '-log10(p)_Regulon_stratification',
+       'Fraction_of_edges_correctly_aligned',
+       'Fraction_of_aligned_and_diff_exp_edges',
+       'number_downstream_regulons',
+       'number_differentially_expressed_regulons', 'CMFlowType'],
+
 """
 def import_cmflows(conn, regulons, mutations, genes, tfs, filename, has_pathway=False):
     with conn.cursor() as cur:
@@ -450,15 +463,6 @@ def import_cmflows(conn, regulons, mutations, genes, tfs, filename, has_pathway=
                 pk = cur.lastrowid
                 mutations[mutation] = pk
 
-        # TODO: Check the TFS in genes
-        not_in_count = 0
-        df_regulators = set(df['RegulatorEnsembl'])
-        for reg in df_regulators:
-            if reg not in genes:
-                not_in_count += 1
-        print("# TFS not in genes: %d, total: %d" % (not_in_count, len(df_regulators)))
-
-
         for index, row in df.iterrows():
             cmf_id = row['CMF_ID']
             cmf_name = row['CMFlow']
@@ -469,18 +473,37 @@ def import_cmflows(conn, regulons, mutations, genes, tfs, filename, has_pathway=
             else:
                 cmf_pathway_id = None
 
-            # import mutation genes, TODO: what to do if they exist as non-mutated genes ?
-            # MutationSymbol, MutationEnsembl,
-            # mutation_gene_id is initialized here
+            # import mutation genes
+            # Brutal truth: Sometimes, only the symbol exists and not the
+            # EnsEMBL ID, so we need to account for that (TODO)
             mut_ens = row['MutationEnsembl']
             mut_sym = row['MutationSymbol']
-            if mut_ens not in genes:
-                # TODO: insert into genes
-                pass
-            else:
-                # TODO: update as mutation gene
-                pass
+            if not has_pathway:
+                if type(mut_ens) != str and np.isnan(mut_ens):
+                    print("mutation gene is NaN for symbol: '%s'" % mut_sym)
+                else:
+                    if mut_ens not in genes:
+                        # Insert as a new gene
+                        cur.execute('insert into genes (ensembl_id,preferred,is_mutation) values (%s,%s,1)',
+                                    [mut_ens, mut_sym])
+                        genes[mut_ens] = (cur.lastrowid, None, mut_sym)
+                    else:
+                        cur.execute('update genes set is_mutation=1 where id=%s',
+                                    [genes[mut_ens][0]])
+                    conn.commit()
 
+            regulator_id = genes[row['RegulatorEnsembl']][0]
+            regulon_id = regulons["R-%d" % row['Regulon']]
+            bc_mutation_tf_role_id = 2 if row['MutationRegulatorEdge'] == 1 else 1
+            bc_mutation_tf_pvalue = row['-log10(p)_MutationRegulatorEdge']
+            bc_tf_spearman_r = row['RegulatorRegulon_Spearman_R']
+            bc_tf_spearman_pvalue = row['RegulatorRegulon_Spearman_p-value']
+            bc_t_statistic = row['Regulon_stratification_t-statistic']
+            bc_log10_p_stratification = row['-log10(p)_Regulon_stratification']
+            fraction_edges_correctly_aligned = row['Fraction_of_edges_correctly_aligned']
+            fraction_aligned_diffexp_edges = row['Fraction_of_aligned_and_diff_exp_edges']
+            num_downstream_regulons = row['number_downstream_regulons']
+            num_diffexp_regulons = row['number_differentially_expressed_regulons']
 
             # cur.execute("""insert into cm_flows (cmf_id,cmf_name,cmf_type_id,
             # mutation_id,cmf_pathway_id,mutation_gene_id,tf_id,bc_id,
@@ -491,7 +514,7 @@ def import_cmflows(conn, regulons, mutations, genes, tfs, filename, has_pathway=
             # num_downstream_regulons,num_diffexp_regulons) values
             # (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             #             [cmf_id, cmf_name, cmf_type_id, mutation_id, cmf_pathway_id,
-            #              mutation_gene_id, tf_id, bc_id,
+            #              mutation_gene_id, regulator_id, regulon_id,
             #              bc_mutation_tf_role_id, bc_mutation_tf_pvalue,
             #              bc_tf_spearman_r, bc_tf_spearman_pvalue,
             #              bc_t_statistic, bc_log10_p_stratification,
@@ -581,6 +604,7 @@ if __name__ == '__main__':
     fill_roles(conn)
     mutations = import_mutations(conn, df)
     genes = import_genes(conn, gene_names, ens2pref, ens2entrez)
+
     tfs = import_tfs(conn, df, genes)
     regulons = import_regulons(conn, regulon_map, cox_map, mutations)
     import_mutation_regulator(conn, df, regulons, mutations, tfs)
