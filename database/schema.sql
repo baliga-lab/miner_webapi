@@ -42,7 +42,7 @@ create table genes (
        is_regulator integer default 0
 );
 
-create table tfs (id integer primary key auto_increment, name varchar(50) not null, symbol varchar(50));
+/* create table tfs (id integer primary key auto_increment, name varchar(50) not null, symbol varchar(50)); */
 create table trans_programs (id integer primary key auto_increment, name varchar(10) not null);
 create table bc_tf_roles (id integer primary key auto_increment, name varchar(30) not null);
 create table bc_mutation_tf_roles (id integer primary key auto_increment, name varchar(50) not null);
@@ -51,19 +51,19 @@ create table bc_tf_bc_roles (id integer primary key auto_increment, name varchar
 create table bicluster_genes (bicluster_id integer not null references biclusters, gene_id integer not null references genes);
 create table bicluster_programs (bicluster_id integer not null references biclusters, program_id integer not null references trans_programs);
 
-create table bc_mutation_tf (id integer primary key auto_increment, bicluster_id integer not null references biclusters, mutation_id integer not null references mutations, tf_id integer not null references tfs, role integer not null references bc_mutation_tf_roles);
+create table bc_mutation_tf (id integer primary key auto_increment, bicluster_id integer not null references biclusters, mutation_id integer not null references mutations, tf_id integer not null references genes, role integer not null references bc_mutation_tf_roles);
 
 create table bc_tf (
        id integer primary key auto_increment,
        bicluster_id integer not null references biclusters,
-       tf_id integer not null references tfs,
+       tf_id integer not null references genes,
        role integer not null references bc_tf_roles
 );
 
 create table bc_program_genes (
        id integer primary key auto_increment,
        bicluster_id integer not null references biclusters,
-       program_id integer not null references tfs,
+       program_id integer not null references trans_programs,
        gene_id integer not null references genes,
        is_disease_relevant integer
 );
@@ -136,7 +136,7 @@ create table cm_flows (
   mutation_id integer references mutations, /* can be null */
   cmf_pathway_id integer references cmf_pathways,
   mutation_gene_id integer references genes, /* can be null */
-  tf_id integer references tfs,
+  tf_id integer references genes,
   bc_id integer references biclusters,
   bc_mutation_tf_role_id integer references bc_mutation_tf_roles,
   bc_mutation_tf_pvalue float,

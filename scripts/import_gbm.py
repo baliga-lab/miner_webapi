@@ -23,29 +23,24 @@ def fill_roles(conn):
             cur.execute("insert into bc_mutation_tf_roles (id, name) values (2, 'up-regulates')")
             conn.commit()
 
-def import_tfs(conn, df, genes):
-    """tfs: id: int, name: string, cox_hazard_ratio: float
-    In the import document this is the Regulator
-    TODO: A regulon is actually a gene
-    """
-    tfs = set(df['Regulator'])
+def import_regulators(conn, df, genes):
+    """Import regulators"""
+    regulators = set(df['Regulator'])
     result = {}
     with conn.cursor() as cur:
-        cur.execute('select count(*) from tfs')
-        num_tfs = cur.fetchone()[0]
-        if num_tfs > 0:
-            print('TFs found, reading from database')
-            cur.execute('select id,name from tfs')
-            for pk, name in cur.fetchall():
-                result[name] = pk
-        else:
-            print('TFs not found, inserting into database')
-            for tf in tfs:
-                cur.execute('insert into tfs (name) values (%s)', [tf])
-                result[tf] = cur.lastrowid
-                if tf in genes:
-                    gene_id = genes[tf][0]
-                    cur.execute('update genes set is_regulator=1 where id=%s', [gene_id])
+        cur.execute('select id,ensembl_id from genes where is_regulator=1')
+        for pk, ensembl_id in cur.fetchall():
+            result[ensembl_id] = pk
+        for ens in regulators:
+            if ens in genes:
+                gene_id = genes[ens][0]
+                cur.execute('update genes set is_regulator=1 where id=%s', [gene_id])
+                result[ens] = gene_id
+            else:
+                cur.execute("insert into genes (ensembl_id,is_regulator) values (%s,1)", [ens])
+                regulator_id = cur.lastrowid
+                genes[ens] = (regulator_id, None, None)
+                result[ens] = regulator_id
             conn.commit()
     return result
 
@@ -617,10 +612,10 @@ if __name__ == '__main__':
     mutations = import_mutations(conn, df)
     genes = import_genes(conn, gene_names, ens2pref, ens2entrez)
 
-    tfs = import_tfs(conn, df, genes)
+    regulators = import_regulators(conn, df, genes)
     regulons = import_regulons(conn, regulon_map, cox_map, mutations)
-    import_mutation_regulator(conn, df, regulons, mutations, tfs)
-    import_regulon_regulator(conn, df, regulons, tfs)
+    import_mutation_regulator(conn, df, regulons, mutations, regulators)
+    import_regulon_regulator(conn, df, regulons, regulators)
     import_regulon_genes(conn, df, regulon_map, regulons, genes)
     programs = import_transcriptional_programs(conn, regulons, args)
 
@@ -628,5 +623,5 @@ if __name__ == '__main__':
                                                    regulons, programs, genes,
                                                    args)
     import_drug_data(conn, regulons, programs, genes, args)
-    import_cmflows(conn, regulons, mutations, genes, tfs, "diseaseRelevantCMFlowsGenes.csv", False)
-    import_cmflows(conn, regulons, mutations, genes, tfs, "diseaseRelevantCMFlowsPathways.csv", True)
+    import_cmflows(conn, regulons, mutations, genes, regulators, "diseaseRelevantCMFlowsGenes.csv", False)
+    import_cmflows(conn, regulons, mutations, genes, regulators, "diseaseRelevantCMFlowsPathways.csv", True)
