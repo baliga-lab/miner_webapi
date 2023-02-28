@@ -35,7 +35,7 @@ create table biclusters (
 );
 create table genes (
        id integer primary key auto_increment,
-       ensembl_id varchar(80) not null,
+       ensembl_id varchar(80),
        entrez_id varchar(80),
        preferred varchar(80),
        is_mutation integer default 0,

@@ -257,9 +257,6 @@ def import_regulons_programs_genes_disease_mapping(conn,
             gene_id = genes[gene][0]
             program_id = programs[program]
             is_disease_relevant = row['is_disease_relevant']
-            print("GENEID: ", gene_id)
-            print("REGID: ", regulon_id)
-            print("PROGID: ", program_id)
             cur.execute('insert into bc_program_genes (bicluster_id,program_id,gene_id,is_disease_relevant) values (%s,%s,%s,%s)', [regulon_id, program_id, gene_id, 1 if is_disease_relevant != 'False' else 0])
         conn.commit()
 
@@ -433,6 +430,10 @@ def import_cmflows(conn, regulons, mutations, genes, tfs, filename, has_pathway=
     with conn.cursor() as cur:
         cmflow_types = read_catalog_table_as_map(conn, "cm_flow_types")
         cmf_pathways = read_catalog_table_as_map(conn, "cmf_pathways")
+        symbol2gene_id = {}
+        cur.execute('select id,preferred from genes')
+        for pk, symbol in cur.fetchall():
+            symbol2gene_id[symbol] = pk
 
         df = pd.read_csv(os.path.join(args.indir, filename),
                          sep=',', header=0)
@@ -475,25 +476,36 @@ def import_cmflows(conn, regulons, mutations, genes, tfs, filename, has_pathway=
 
             # import mutation genes
             # Brutal truth: Sometimes, only the symbol exists and not the
-            # EnsEMBL ID, so we need to account for that (TODO)
+            # EnsEMBL ID, so we need to add that
             mut_ens = row['MutationEnsembl']
             mut_sym = row['MutationSymbol']
             if not has_pathway:
                 if type(mut_ens) != str and np.isnan(mut_ens):
-                    print("mutation gene is NaN for symbol: '%s'" % mut_sym)
+                    #print("mutation gene is NaN for symbol: '%s'" % mut_sym)
+                    if mut_sym not in symbol2gene_id:
+                        cur.execute('insert into genes (preferred,is_mutation) values (%s,1)', [mut_sym])
+                        mutation_gene_id = cur.lastrowid
+                        genes[mut_ens] = (mutation_gene_id, None, mut_sym)
+                        symbol2gene_id[mut_sym] = mutation_gene_id
+                    else:
+                        mutation_gene_id = None
                 else:
                     if mut_ens not in genes:
                         # Insert as a new gene
                         cur.execute('insert into genes (ensembl_id,preferred,is_mutation) values (%s,%s,1)',
                                     [mut_ens, mut_sym])
-                        genes[mut_ens] = (cur.lastrowid, None, mut_sym)
+                        mutation_gene_id = cur.lastrowid
+                        genes[mut_ens] = (mutation_gene_id, None, mut_sym)
                     else:
-                        cur.execute('update genes set is_mutation=1 where id=%s',
-                                    [genes[mut_ens][0]])
+                        mutation_gene_id = genes[mut_ens][0]
+                        cur.execute('update genes set is_mutation=1 where id=%s', [mutation_gene_id])
                     conn.commit()
+            else:
+                # Pathway file does not have mutation gene info
+                mutation_gene_id = None
 
             regulator_id = genes[row['RegulatorEnsembl']][0]
-            regulon_id = regulons["R-%d" % row['Regulon']]
+            regulon_id = regulons["R-%d" % row['Regulon']][0]
             bc_mutation_tf_role_id = 2 if row['MutationRegulatorEdge'] == 1 else 1
             bc_mutation_tf_pvalue = row['-log10(p)_MutationRegulatorEdge']
             bc_tf_spearman_r = row['RegulatorRegulon_Spearman_R']
@@ -505,21 +517,21 @@ def import_cmflows(conn, regulons, mutations, genes, tfs, filename, has_pathway=
             num_downstream_regulons = row['number_downstream_regulons']
             num_diffexp_regulons = row['number_differentially_expressed_regulons']
 
-            # cur.execute("""insert into cm_flows (cmf_id,cmf_name,cmf_type_id,
-            # mutation_id,cmf_pathway_id,mutation_gene_id,tf_id,bc_id,
-            # bc_mutation_tf_role_id,bc_mutation_tf_pvalue,
-            # bc_tf_spearman_r,bc_tf_spearman_pvalue,
-            # bc_t_statistic,bc_log10_p_stratification,
-            # fraction_edges_correctly_aligned,fraction_aligned_diffexp_edges,
-            # num_downstream_regulons,num_diffexp_regulons) values
-            # (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-            #             [cmf_id, cmf_name, cmf_type_id, mutation_id, cmf_pathway_id,
-            #              mutation_gene_id, regulator_id, regulon_id,
-            #              bc_mutation_tf_role_id, bc_mutation_tf_pvalue,
-            #              bc_tf_spearman_r, bc_tf_spearman_pvalue,
-            #              bc_t_statistic, bc_log10_p_stratification,
-            #              fraction_edges_correctly_aligned, fraction_aligned_diffexp_edges,
-            #              num_downstream_regulons, num_diffexp_regulons])
+            query = """insert into cm_flows (cmf_id,cmf_name,cmf_type_id,
+            mutation_id,cmf_pathway_id,mutation_gene_id,tf_id,bc_id,
+            bc_mutation_tf_role_id,bc_mutation_tf_pvalue,
+            bc_tf_spearman_r,bc_tf_spearman_pvalue,
+            bc_t_statistic,bc_log10_p_stratification,
+            fraction_edges_correctly_aligned,fraction_aligned_diffexp_edges,
+            num_downstream_regulons,num_diffexp_regulons) values
+            (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
+            cur.execute(query, [cmf_id, cmf_name, cmf_type_id, mutation_id, cmf_pathway_id,
+                                mutation_gene_id, regulator_id, regulon_id,
+                                bc_mutation_tf_role_id, bc_mutation_tf_pvalue,
+                                bc_tf_spearman_r, bc_tf_spearman_pvalue,
+                                bc_t_statistic, bc_log10_p_stratification,
+                                fraction_edges_correctly_aligned, fraction_aligned_diffexp_edges,
+                                num_downstream_regulons, num_diffexp_regulons])
 
 
 DBNAME = 'gbm_api'
