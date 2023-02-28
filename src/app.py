@@ -35,47 +35,60 @@ def dbconn():
                                    password=app.config['DATABASE_PASSWORD'],
                                    database=app.config['DATABASE_NAME'])
 
-@app.route('/bicluster/<cluster_id>')
-def bicluster_info(cluster_id):
+@app.route('/regulon/<regulon_id>')
+def regulon_info(regulon_id):
     """all genes in the specified bicluster"""
     conn = dbconn()
     cursor = conn.cursor(buffered=True)
     try:
-        cursor.execute('select cox_hazard_ratio,trans_program from biclusters where name=%s', [cluster_id])
-        hazard_ratio, trans_program = cursor.fetchone()
+        cursor.execute('select cox_hazard_ratio from regulons where name=%s', [regulon_id])
+        hazard_ratio = cursor.fetchone()[0]
 
         # mutation role -> transcription factors
         """
-        cursor.execute('select m.name,tfs.name,g.preferred,role from biclusters bc join bc_mutation_tf bmt on bc.id=bmt.bicluster_id join mutations m on m.id=bmt.mutation_id join tfs on tfs.id=bmt.tf_id left join genes g on tfs.name=g.ensembl_id where bc.name=%s', [cluster_id])
+        cursor.execute('select m.name,tfs.ensembl_id,tfs.preferred,role from regulons bc join regulon_mutation_regulator bmt on bc.id=bmt.bicluster_id join mutations m on m.id=bmt.mutation_id join tfs on tfs.id=bmt.tf_id left join genes g on tfs.name=g.ensembl_id where bc.name=%s', [cluster_id])
         mutations_tfs = [{"mutation": mutation,
                           "tf": tf, "tf_preferred": tf_preferred if tf_preferred is not None else tf,
                           "role": MUTATION_TF_ROLES[role]}
                          for mutation, tf, tf_preferred, role in cursor.fetchall()]"""
-        cursor.execute('select mut.name as mutation,tfs.name as regulator,g.preferred as reg_preferred,bmt.role as mutation_role,bc_tf.role as regulator_role,bc.cox_hazard_ratio from bc_mutation_tf bmt join biclusters bc on bmt.bicluster_id=bc.id join mutations mut on bmt.mutation_id=mut.id join tfs on bmt.tf_id=tfs.id join bc_tf on bc.id=bc_tf.bicluster_id and tfs.id=bc_tf.tf_id left join genes g on g.ensembl_id=tfs.name where bc.name=%s',
-                       [cluster_id])
+
+        cursor.execute("""select mut.name as mutation,tfs.ensembl_id as regulator,
+tfs.preferred as reg_preferred,
+bmt.role_id as mutation_role,bc_tf.role_id as regulator_role_id,
+bc.cox_hazard_ratio from regulon_mutation_regulator bmt join regulons bc on bmt.regulon_id=bc.id
+join mutations mut on bmt.mutation_id=mut.id join genes as tfs on bmt.regulator_id=tfs.id
+join regulon_regulator as bc_tf on bc.id=bc_tf.regulon_id and tfs.id=bc_tf.regulator_id
+ where bc.name=%s""",
+                       [regulon_id])
         mutations_tfs = [{"mutation": mutation,
-                          "tf": tf, "tf_preferred": tf_preferred if tf_preferred is not None else tf,
+                          "regulator": regulator,
+                          "regulator_preferred": regulator_preferred if regulator_preferred is not None else tf,
                           "mutation_role": MUTATION_TF_ROLES[mut_role],
                           'regulator_role': TF_BC_ROLES[bc_role],
                           'hazard_ratio': hazard_ratio}
-                         for mutation, tf, tf_preferred, mut_role, bc_role, hazard_ratio in cursor.fetchall()]
+                         for mutation, regulator, regulator_preferred, mut_role, bc_role, hazard_ratio in cursor.fetchall()]
         # transcription factor -> bicluster
-        cursor.execute('select tfs.name,g.preferred,role,tfs.cox_hazard_ratio from biclusters bc join bc_tf bt on bc.id=bt.bicluster_id join tfs on tfs.id=bt.tf_id left join genes g on tfs.name=g.ensembl_id  where bc.name=%s', [cluster_id])
-        tfs_bc = [{"tf": tf, "tf_preferred": tf_preferred if tf_preferred is not None else tf, "role": TF_BC_ROLES[role], "hazard_ratio": tf_hazard_ratio}
-                  for tf, tf_preferred, role, tf_hazard_ratio in cursor.fetchall()]
+        cursor.execute("""select tfs.ensembl_id,tfs.preferred,role_id
+from regulons bc join regulon_regulator bt on bc.id=bt.regulon_id
+join genes as tfs on tfs.id=bt.regulator_id
+where bc.name=%s""", [regulon_id])
+        tfs_bc = [{"regulator": tf, "regulator_preferred": tf_preferred if tf_preferred is not None else tf,
+                   "role": TF_BC_ROLES[role]}
+                  for tf, tf_preferred, role in cursor.fetchall()]
 
         # bicluster genes
-        cursor.execute('select g.preferred from biclusters bc join bicluster_genes bcg on bc.id=bcg.bicluster_id join genes g on g.id=bcg.gene_id where bc.name=%s', [cluster_id])
+        cursor.execute('select g.preferred from regulons bc join regulon_genes bcg on bc.id=bcg.regulon_id join genes g on g.id=bcg.gene_id where bc.name=%s', [regulon_id])
         genes = [row[0] for row in cursor.fetchall()]
 
         # regulon drugs
-        cursor.execute('select d.name from biclusters bc join regulon_drugs rd on rd.regulon_id=bc.id join drugs d on rd.drug_id=d.id where bc.name=%s',
-                       [cluster_id])
+        cursor.execute('select d.name from regulons bc join drug_regulons rd on rd.regulon_id=bc.id join drugs d on rd.drug_id=d.id where bc.name=%s',
+                       [regulon_id])
         drugs = [row[0] for row in cursor.fetchall()]
 
+        """
         # mechanism of action
         cursor.execute('select m.name from biclusters bc join regulon_mechanism_of_action rm on rm.regulon_id=bc.id join mechanisms_of_action m on rm.mechanism_of_action_id=m.id where bc.name=%s',
-                       [cluster_id])
+                       [regulon_id])
         moas = [row[0] for row in cursor.fetchall()]
 
         # hallmarks
@@ -93,16 +106,13 @@ def bicluster_info(cluster_id):
         cursor.execute('select tc.name,rtc.pval from biclusters bc join regulon_target_class rtc on rtc.regulon_id=bc.id join target_classes tc on rtc.target_class_id=tc.id where bc.name=%s',
                        [cluster_id])
         target_classes = [{'name': name, 'pval': pval} for name, pval in cursor.fetchall()]
-
-        return jsonify(cluster=cluster_id, trans_program=trans_program,
+"""
+        return jsonify(regulon=regulon_id,
                        hazard_ratio=hazard_ratio,
                        mutations_tfs=mutations_tfs,
                        tfs_bc=tfs_bc,
                        genes=genes,
                        drugs=drugs,
-                       mechanism_of_action=moas,
-                       hallmarks=lin_hallmarks,      # lin hallmarks !!!
-                       target_classes=target_classes,
                        num_causal_flows=len(mutations_tfs))
     except:
         traceback.print_exc()
@@ -384,7 +394,7 @@ join regulon_mutation_regulator bmt on bmt.regulon_id=bt.regulon_id and bmt.regu
 join mutations mut on mut.id=bmt.mutation_id where tfs.ensembl_id=%s""",
                        [tf_name])
         result = [{
-            "bicluster": bc, "role": TF_BC_ROLES[role],
+            "regulon": bc, "role": TF_BC_ROLES[role],
             "hazard_ratio": bc_hazard_ratio,
             "mutation": mut,
         } for bc, role, bc_hazard_ratio, mut in cursor.fetchall()]
