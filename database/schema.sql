@@ -1,17 +1,14 @@
 drop table if exists mutations;
-drop table if exists biclusters;
+drop table if exists regulons;
 drop table if exists genes;
-drop table if exists tfs;
 drop table if exists trans_programs;
-drop table if exists bc_tf_roles;
-drop table if exists bc_tf_bc_roles;
-drop table if exists bc_mutation_tf_roles;
-drop table if exists bicluster_genes;
-drop table if exists bicluster_programs;
-drop table if exists bc_mutation_tf;
-drop table if exists bc_tf;
-drop table if exists bc_tf_genes;
-drop table if exists bc_program_genes;
+drop table if exists regulon_regulator_roles;
+drop table if exists regulon_mutation_regulator_roles;
+drop table if exists regulon_genes;
+drop table if exists regulon_programs;
+drop table if exists regulon_mutation_regulator;
+drop table if exists regulon_regulator;
+drop table if exists regulon_program_genes;
 drop table if exists drug_types;
 drop table if exists action_types;
 drop table if exists mechanisms_of_action;
@@ -24,50 +21,52 @@ drop table if exists cm_flow_types;
 drop table if exists cmf_pathways;
 drop table if exists cm_flows;
 
-
-
 /* Pathway mutations */
 create table mutations (id integer primary key auto_increment, name varchar(100) not null);
-create table biclusters (
+create table regulons (
   id integer primary key auto_increment,
   name varchar(50) not null,
   cox_hazard_ratio float
 );
 create table genes (
-       id integer primary key auto_increment,
-       ensembl_id varchar(80),
-       entrez_id varchar(80),
-       preferred varchar(80),
-       is_mutation integer default 0,
-       is_regulator integer default 0
+  id integer primary key auto_increment,
+  ensembl_id varchar(80),
+  entrez_id varchar(80),
+  preferred varchar(80),
+  is_mutation integer default 0,
+  is_regulator integer default 0
 );
 
 /* create table tfs (id integer primary key auto_increment, name varchar(50) not null, symbol varchar(50)); */
 create table trans_programs (id integer primary key auto_increment, name varchar(10) not null);
-create table bc_tf_roles (id integer primary key auto_increment, name varchar(30) not null);
-create table bc_mutation_tf_roles (id integer primary key auto_increment, name varchar(50) not null);
-create table bc_tf_bc_roles (id integer primary key auto_increment, name varchar(50) not null);
+create table regulon_regulator_roles (id integer primary key auto_increment, name varchar(30) not null);
+create table regulon_mutation_regulator_roles (id integer primary key auto_increment, name varchar(50) not null);
 
-create table bicluster_genes (bicluster_id integer not null references biclusters, gene_id integer not null references genes);
-create table bicluster_programs (bicluster_id integer not null references biclusters, program_id integer not null references trans_programs);
+create table regulon_genes (regulon_id integer not null references regulons, gene_id integer not null references genes);
+create table regulon_programs (regulon_id integer not null references regulons, program_id integer not null references trans_programs);
 
-create table bc_mutation_tf (id integer primary key auto_increment, bicluster_id integer not null references biclusters, mutation_id integer not null references mutations, tf_id integer not null references genes, role integer not null references bc_mutation_tf_roles);
-
-create table bc_tf (
-       id integer primary key auto_increment,
-       bicluster_id integer not null references biclusters,
-       tf_id integer not null references genes,
-       role integer not null references bc_tf_roles
+create table regulon_mutation_regulator (
+  id integer primary key auto_increment,
+  regulon_id integer not null references regulons,
+  mutation_id integer not null references mutations,
+  regulator_id integer not null references genes,
+  role_id integer not null references regulon_mutation_regulator_roles
 );
 
-create table bc_program_genes (
-       id integer primary key auto_increment,
-       bicluster_id integer not null references biclusters,
-       program_id integer not null references trans_programs,
-       gene_id integer not null references genes,
-       is_disease_relevant integer
+create table regulon_regulator (
+  id integer primary key auto_increment,
+  regulon_id integer not null references regulons,
+  regulator_id integer not null references genes,
+  role_id integer not null references regulon_regulator_roles
 );
 
+create table regulon_program_genes (
+  id integer primary key auto_increment,
+  regulon_id integer not null references regulons,
+  program_id integer not null references trans_programs,
+  gene_id integer not null references genes,
+  is_disease_relevant integer
+);
 
 /*
  * Drug model
@@ -87,7 +86,7 @@ create table drug_targets (
 
 create table drug_regulons (
   drug_id integer references drugs,
-  regulon_id integer references biclusters
+  regulon_id integer references regulons
 );
 
 create table drug_programs (
@@ -112,12 +111,6 @@ create table drugs (
 /*
  * Pre-populate database
  */
-insert into bc_mutation_tf_roles (id, name) values (1, 'down-regulates');
-insert into bc_mutation_tf_roles (id, name) values (2, 'up-regulates');
-
-insert into bc_tf_roles (id, name) values (1, 'activates');
-insert into bc_tf_roles (id, name) values (2, 'represses');
-
 /*
 Causal Mechanistic flow tables
 Involved are the Mutation with a Regulator and a Regulon and associated values
@@ -136,15 +129,15 @@ create table cm_flows (
   mutation_id integer references mutations, /* can be null */
   cmf_pathway_id integer references cmf_pathways,
   mutation_gene_id integer references genes, /* can be null */
-  tf_id integer references genes,
-  bc_id integer references biclusters,
-  bc_mutation_tf_role_id integer references bc_mutation_tf_roles,
-  bc_mutation_tf_pvalue float,
-  bc_tf_spearman_r float,
-  bc_tf_spearman_pvalue float,
-  bc_t_statistic float,
-  bc_log10_p_stratification float,
-  fraction_edges_correctly_aligned integer,
+  regulator_id integer references genes,
+  regulon_id integer references regulons,
+  regulon_mutation_regulator_role_id integer references regulon_mutation_regulator_roles,
+  regulon_mutation_regulator_pvalue float,
+  regulon_regulator_spearman_r float,
+  regulon_regulator_spearman_pvalue float,
+  regulon_t_statistic float,
+  regulon_log10_p_stratification float,
+  fraction_edges_correctly_aligned float,
   fraction_aligned_diffexp_edges float,
   num_downstream_regulons integer,
   num_diffexp_regulons integer

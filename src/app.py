@@ -264,17 +264,18 @@ def causal_flows_with_program(program):
     try:
         # search causal flows by regulon genes
         cursor.execute("""
-        select bc.name,mut.name,tfs.ensembl_id,tfs.preferred,bmt.role,bc_tf.role,bc.cox_hazard_ratio,bgg.num_genes
-        from bc_mutation_tf bmt
-        join biclusters bc on bmt.bicluster_id=bc.id
+        select bc.name,mut.name,tfs.ensembl_id,tfs.preferred,bmt.role_id,bc_tf.role_id,bc.cox_hazard_ratio,bgg.num_genes
+        from regulon_mutation_regulator bmt
+        join regulons bc on bmt.regulon_id=bc.id
         join mutations mut on bmt.mutation_id=mut.id
-        join genes as tfs on bmt.tf_id=tfs.id join bc_tf on bc.id=bc_tf.bicluster_id and tfs.id=bc_tf.tf_id
+        join genes as tfs on bmt.regulator_id=tfs.id
+        join regulon_regulator bc_tf on bc.id=bc_tf.regulon_id and tfs.id=bc_tf.regulator_id
         join
           (select bc.id,count(bg.gene_id) as num_genes
-           from biclusters bc
-           join bicluster_genes bg on bc.id=bg.bicluster_id group by bc.id) as bgg
+           from regulons bc
+           join regulon_genes bg on bc.id=bg.regulon_id group by bc.id) as bgg
         on bc.id=bgg.id
-        where bc.id in (select bicluster_id from bicluster_programs bp join trans_programs p on bp.program_id=p.id where p.name=%s)""",
+        where bc.id in (select regulon_id from regulon_programs bp join trans_programs p on bp.program_id=p.id where p.name=%s)""",
                        [program])
         result = [{
             'bicluster': bc,
@@ -354,10 +355,10 @@ def mutation(mutation_name):
     conn = dbconn()
     cursor = conn.cursor()
     try:
-        cursor.execute("""select tfs.ensembl_id,tfs.preferred,bc.name,bmt.role,bc.cox_hazard_ratio
-from bc_mutation_tf bmt join biclusters bc on bmt.bicluster_id=bc.id
+        cursor.execute("""select tfs.ensembl_id,tfs.preferred,bc.name,bmt.role_id,bc.cox_hazard_ratio
+from regulon_mutation_regulator bmt join regulons bc on bmt.regulon_id=bc.id
 join mutations m on m.id=bmt.mutation_id
-join genes as tfs on tfs.id=bmt.tf_id
+join genes as tfs on tfs.id=bmt.regulator_id
 where m.name=%s""",
                        [mutation_name])
         result = [{"regulator": tf, "regulator_preferred": tf_preferred if tf_preferred is not None else tf, "bicluster": bc,
@@ -377,9 +378,9 @@ def regulator(tf_name):
     conn = dbconn()
     cursor = conn.cursor()
     try:
-        cursor.execute("""select bc.name,bt.role,bc.cox_hazard_ratio,mut.name
-from bc_tf bt join biclusters bc on bt.bicluster_id=bc.id join genes as tfs on bt.tf_id=tfs.id
-join bc_mutation_tf bmt on bmt.bicluster_id=bt.bicluster_id and bmt.tf_id=bt.tf_id
+        cursor.execute("""select bc.name,bt.role_id,bc.cox_hazard_ratio,mut.name
+from regulon_regulator bt join regulons bc on bt.regulon_id=bc.id join genes as tfs on bt.regulator_id=tfs.id
+join regulon_mutation_regulator bmt on bmt.regulon_id=bt.regulon_id and bmt.regulator_id=bt.regulator_id
 join mutations mut on mut.id=bmt.mutation_id where tfs.ensembl_id=%s""",
                        [tf_name])
         result = [{
@@ -408,13 +409,13 @@ def program(progname):
     try:
         cursor.execute("""
         select bc.id,name,bc.cox_hazard_ratio,num_genes,num_causal_flows
-          from biclusters bc
-          join (select bicluster_id, count(gene_id) as num_genes from bicluster_genes
-          group by bicluster_id) as bcg on bc.id=bcg.bicluster_id
-          join (select bicluster_id, count(*) as num_causal_flows
-          from bc_mutation_tf
-          group by bicluster_id) as bccf on bc.id=bccf.bicluster_id
-          where bc.id in (select bicluster_id from bicluster_programs bp join trans_programs p on bp.program_id=p.id where p.name=%s)""",
+          from regulons bc
+          join (select regulon_id, count(gene_id) as num_genes from regulon_genes
+          group by regulon_id) as bcg on bc.id=bcg.regulon_id
+          join (select regulon_id, count(*) as num_causal_flows
+          from regulon_mutation_regulator
+          group by regulon_id) as bccf on bc.id=bccf.regulon_id
+          where bc.id in (select regulon_id from regulon_programs bp join trans_programs p on bp.program_id=p.id where p.name=%s)""",
                        [progname])
 
         regulons = []
@@ -428,8 +429,8 @@ def program(progname):
                 'num_causal_flows': num_causal_flows})
         cursor.execute("""
         select distinct ensembl_id,entrez_id,preferred from genes g join
-        bicluster_genes bg on g.id=bg.gene_id
-        where bg.bicluster_id in (select bicluster_id from bicluster_programs bp join trans_programs p on bp.program_id=p.id where p.name=%s)""", [progname])
+        regulon_genes bg on g.id=bg.gene_id
+        where bg.regulon_id in (select regulon_id from regulon_programs bp join trans_programs p on bp.program_id=p.id where p.name=%s)""", [progname])
         for ensembl_id, entrez_id, preferred in cursor.fetchall():
             genes.append({'ensembl_id': ensembl_id, 'entrez_id': entrez_id, 'preferred': preferred})
         return jsonify(regulons=regulons, genes=genes, num_genes=len(genes), num_regulons=len(regulons))
@@ -443,24 +444,20 @@ def summary():
     conn = dbconn()
     cursor = conn.cursor()
     try:
-        cursor.execute('select count(*) from biclusters')
+        cursor.execute('select count(*) from regulons')
         num_biclusters = cursor.fetchone()[0]
         cursor.execute('select count(*) from genes where is_regulator=1')
         num_regulators = cursor.fetchone()[0]
         cursor.execute('select count(*) from mutations')
         num_mutations = cursor.fetchone()[0]
-        """
-        cursor.execute('select count(*) from patients')
-        num_patients = cursor.fetchone()[0]
-        cursor.execute('select count(*) from bc_mutation_tf bmt join biclusters bc on bmt.bicluster_id=bc.id join mutations mut on bmt.mutation_id=mut.id join tfs on bmt.tf_id=tfs.id join bc_tf on bc.id=bc_tf.bicluster_id and tfs.id=bc_tf.tf_id left join genes g on g.ensembl_id=tfs.name')
-        num_causal_flows = cursor.fetchone()[0]"""
+        cursor.execute('select count(*) from cm_flows')
+        num_causal_flows = cursor.fetchone()[0]
         cursor.execute('select count(*) from trans_programs')
         num_trans_programs = cursor.fetchone()[0]
         return jsonify(num_biclusters=num_biclusters,
                        num_regulators=num_regulators,
                        num_mutations=num_mutations,
-                       #num_patients=num_patients,
-                       #num_causal_flows=num_causal_flows,
+                       num_causal_flows=num_causal_flows,
                        num_trans_programs=num_trans_programs)
     finally:
         cursor.close()
@@ -542,7 +539,7 @@ def bicluster_network(cluster_id):
         edge_count = 0
         # retrieve the mutation and transcription factor nodes/edges
         # transcription factor -> bicluster
-        cursor.execute('select tfs.name,g.preferred,role from biclusters bc join bc_tf bt on bc.id=bt.bicluster_id join tfs on tfs.id=bt.tf_id left join genes g on tfs.name=g.ensembl_id where bc.name=%s', [cluster_id])
+        cursor.execute('select tfs.ensembl_id,tfs.preferred,role from biclusters bc join regulon_regulator bt on bc.id=bt.regulon_id join genes tfs on tfs.id=bt.regulator_id where bc.name=%s', [cluster_id])
         for tf, tf_preferred, role in cursor.fetchall():
             tf = tf_preferred if tf_preferred is not None else tf
             elements.append({"data": {"id": tf}, "classes": "tf"})
@@ -551,7 +548,7 @@ def bicluster_network(cluster_id):
             edge_count += 1
 
         # mutation role -> transcription factors
-        cursor.execute('select m.name,tfs.name,g.preferred,role from biclusters bc join bc_mutation_tf bmt on bc.id=bmt.bicluster_id join mutations m on m.id=bmt.mutation_id join tfs on tfs.id=bmt.tf_id left join genes g on tfs.name=g.ensembl_id where bc.name=%s', [cluster_id])
+        cursor.execute('select m.name,tfs.ensembl_id,tfs.preferred,role from biclusters bc join bc_mutation_tf bmt on bc.id=bmt.bicluster_id join mutations m on m.id=bmt.mutation_id join genes tfs on tfs.id=bmt.tf_id where bc.name=%s', [cluster_id])
         for mutation, tf, tf_preferred, role in cursor.fetchall():
             tf = tf_preferred if tf_preferred is not None else tf
             elements.append({"data": {"id": mutation}, "classes": "mutation"})
@@ -631,7 +628,7 @@ def causal_flow():
     conn = dbconn()
     cursor = conn.cursor()
     try:
-        cursor.execute("""select bc.name,mut.name,tfs.name,g.preferred,bmt.role,bc_tf.role,bc.cox_hazard_ratio,bgg.num_genes,bc.trans_program from bc_mutation_tf bmt join biclusters bc on bmt.bicluster_id=bc.id join mutations mut on bmt.mutation_id=mut.id join tfs on bmt.tf_id=tfs.id join bc_tf on bc.id=bc_tf.bicluster_id and tfs.id=bc_tf.tf_id join (select bc.id,count(bg.gene_id) as num_genes from biclusters bc join bicluster_genes bg on bc.id=bg.bicluster_id group by bc.id) as bgg on bc.id=bgg.id left join genes g on g.ensembl_id=tfs.name""")
+        cursor.execute("""select bc.name,mut.name,tfs.name,g.preferred,bmt.role,bc_tf.role_id,bc.cox_hazard_ratio,bgg.num_genes,bc.trans_program from bc_mutation_tf bmt join biclusters bc on bmt.bicluster_id=bc.id join mutations mut on bmt.mutation_id=mut.id join tfs on bmt.tf_id=tfs.id join bc_tf on bc.id=bc_tf.bicluster_id and tfs.id=bc_tf.tf_id join (select bc.id,count(bg.gene_id) as num_genes from biclusters bc join bicluster_genes bg on bc.id=bg.bicluster_id group by bc.id) as bgg on bc.id=bgg.id left join genes g on g.ensembl_id=tfs.name""")
         return jsonify(entries=[{
             'bicluster': bc,
             'mutation': mut,

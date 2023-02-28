@@ -14,13 +14,13 @@ DESCRIPTION = "import_gbm - import filtered causal results to GBM backend"
 
 def fill_roles(conn):
     with conn.cursor() as cur:
-        cur.execute('select count(*) from bc_tf_roles')
+        cur.execute('select count(*) from regulon_regulator_roles')
         # only insert if not exist
         if cur.fetchone()[0] == 0:
-            cur.execute("insert into bc_tf_roles (id, name) values (1, 'activates')")
-            cur.execute("insert into bc_tf_roles (id, name) values (2, 'represses')")
-            cur.execute("insert into bc_mutation_tf_roles (id, name) values (1, 'down-regulates')")
-            cur.execute("insert into bc_mutation_tf_roles (id, name) values (2, 'up-regulates')")
+            cur.execute("insert into regulon_regulator_roles (id, name) values (1, 'activates')")
+            cur.execute("insert into regulon_regulator_roles (id, name) values (2, 'represses')")
+            cur.execute("insert into regulon_mutation_regulator_roles (id, name) values (1, 'down-regulates')")
+            cur.execute("insert into regulon_mutation_regulator_roles (id, name) values (2, 'up-regulates')")
             conn.commit()
 
 def import_regulators(conn, df, genes):
@@ -100,22 +100,22 @@ def import_genes(conn, ens_genes, ens2pref, ens2entrez):
 
 
 def import_regulons(conn, regulon_map, cox_map, mutations):
-    """biclusters: id, name, cox_hazard_ratio"""
+    """regulons: id, name, cox_hazard_ratio"""
     result = {}
     with conn.cursor() as cur:
-        cur.execute('select count(*) from biclusters')
+        cur.execute('select count(*) from regulons')
         if cur.fetchone()[0] > 0:
             print('Regulons found, reading from database')
-            cur.execute('select b.id,b.name,b.cox_hazard_ratio from biclusters b')
+            cur.execute('select id,name,cox_hazard_ratio from regulons')
             for pk, regulon, hr in cur.fetchall():
                 result[regulon] = (pk, hr)
         else:
             print('Regulons not found, inserting into database')
             for regulon in regulon_map.keys():
                 cox_hr = cox_map[regulon]['HazardRatio']
-                cur.execute('select count(*) from biclusters where name=%s', [regulon])
+                cur.execute('select count(*) from regulons where name=%s', [regulon])
                 if cur.fetchone()[0] == 0:
-                    cur.execute('insert into biclusters (name,cox_hazard_ratio) values (%s,%s)',
+                    cur.execute('insert into regulons (name,cox_hazard_ratio) values (%s,%s)',
                                 [regulon, cox_hr])
                     result[regulon] = (cur.lastrowid, cox_hr)
             conn.commit()
@@ -123,12 +123,10 @@ def import_regulons(conn, regulon_map, cox_map, mutations):
 
 
 def import_mutation_regulator(conn, df, regulons, mutations, tfs):
-    """table: bc_mutation_tf, field: MutationRegulatorEdge
-    id, bicluster_id, mutation_id, tf_id, role"""
-    """bc_tf_roles: 1 = activates, 2 = represses
-    bc_mutation_tf_roles: 1 = down-regulates 2 = up-regulates"""
+    """table: regulon_mutation_regulator, field: MutationRegulatorEdge
+    id, regulon_id, mutation_id, regulator_id, role_id"""
     with conn.cursor() as cur:
-        cur.execute('select count(*) from bc_mutation_tf')
+        cur.execute('select count(*) from regulon_mutation_regulator')
         if cur.fetchone()[0] == 0:
             print('no mutation_regulator edges found, insert into database')
 
@@ -141,35 +139,20 @@ def import_mutation_regulator(conn, df, regulons, mutations, tfs):
                 regulator_id = tfs[regulator]
                 mutation_id = mutations[mutation]
                 if edge < 0:
-                    role = 1  # down-regulates
+                    role_id = 1  # down-regulates
                 else:
-                    role = 2  # up-regulates
-                cur.execute('insert into bc_mutation_tf (bicluster_id,mutation_id,tf_id,role) values (%s,%s,%s,%s)',
-                            [regulon_id, mutation_id, regulator_id, role])
+                    role_id = 2  # up-regulates
+                cur.execute('insert into regulon_mutation_regulator (regulon_id,mutation_id,regulator_id,role_id) values (%s,%s,%s,%s)',
+                            [regulon_id, mutation_id, regulator_id, role_id])
             conn.commit()
         else:
             print('skip inserting mutation regulator edges')
 
-"""
-Index(['Unnamed: 0', 'Mutation', 'Regulator', 'Regulon',
-       'MutationRegulatorEdge', '-log10(p)_MutationRegulatorEdge',
-       'RegulatorRegulon_Spearman_R', 'RegulatorRegulon_Spearman_p-value',
-       'Regulon_stratification_t-statistic',
-       '-log10(p)_Regulon_stratification',
-       'Fraction_of_edges_correctly_aligned', 'TranscriptionalProgram',
-       'HazardRatio', 'HazardRatioPval', 'RegulonGenes', 'DrugEnrichment',
-       'HallmarksEnrichment', 'LinHallmarks', 'TargetClassEnrichment',
-       'TargetClass_p-value', 'MechanismOfActionEnrichment',
-       'MechanismOfAction_p-value', 'mirv_miRNA', 'PITA_miRNA', 'PITA_pval',
-       'TargetScan_miRNA', 'TargetScan_pval'],
-      dtype='object')
-
-"""
 
 def import_regulon_regulator(conn, df, regulons, tfs):
-    """table: bc_tf (bicluster_id,tf_id,role)"""
+    """table: bc_tf (regulon_id,tf_id,role)"""
     with conn.cursor() as cur:
-        cur.execute('select count(*) from bc_tf')
+        cur.execute('select count(*) from regulon_regulator')
         if cur.fetchone()[0] == 0:
             print('insert regulon-regulator into database')
             for index, row in df.iterrows():
@@ -179,35 +162,35 @@ def import_regulon_regulator(conn, df, regulons, tfs):
                 regulator_id = tfs[regulator]
                 spearman_r = row['RegulatorRegulon_Spearman_R']
                 if spearman_r > 0:
-                    role = 1  # 1 activates
+                    role_id = 1  # 1 activates
                 else:
-                    role = 2  # 2 represses
+                    role_id = 2  # 2 represses
                 #print(row['RegulatorRegulon_Spearman_p-value'])
-                cur.execute('select count(*) from bc_tf where bicluster_id=%s and tf_id=%s',
+                cur.execute('select count(*) from regulon_regulator where regulon_id=%s and regulator_id=%s',
                             [regulon_id, regulator_id])
                 if cur.fetchone()[0] == 0:
                     # only insert once
-                    cur.execute('insert into bc_tf (bicluster_id,tf_id,role) values (%s,%s,%s)',
-                                [regulon_id, regulator_id, role])
+                    cur.execute('insert into regulon_regulator (regulon_id,regulator_id,role_id) values (%s,%s,%s)',
+                                [regulon_id, regulator_id, role_id])
             conn.commit()
         else:
             print('regulon regulator relations exist, skip')
 
 
 def import_regulon_genes(conn, df, regulon_map, regulons, genes):
-    """table: bicluster_genes (bicluster_id, gene_id)"""
+    """table: regulon_genes (regulon_id, gene_id)"""
     with conn.cursor() as cur:
-        cur.execute('select count(*) from bicluster_genes')
+        cur.execute('select count(*) from regulon_genes')
         if cur.fetchone()[0] == 0:
             print('insert regulon genes into database')
             for regulon, regulon_genes in regulon_map.items():
                 regulon_id = regulons[regulon][0]
                 for gene in regulon_genes:
                     gene_id = genes[gene][0]
-                    cur.execute('select count(*) from bicluster_genes where bicluster_id=%s and gene_id=%s',
+                    cur.execute('select count(*) from regulon_genes where regulon_id=%s and gene_id=%s',
                                 [regulon_id, gene_id])
                     if cur.fetchone()[0] == 0:  # prevent double insertions in the same transaction
-                        cur.execute('insert into bicluster_genes(bicluster_id,gene_id) values (%s,%s)',
+                        cur.execute('insert into regulon_genes(regulon_id,gene_id) values (%s,%s)',
                                     [regulon_id, gene_id])
             conn.commit()
         else:
@@ -230,7 +213,7 @@ def import_transcriptional_programs(conn, regulons, args):
             for regulon_number in prog_regulons:
                 regulon = "R-%s" % regulon_number
                 regulon_id = regulons[regulon][0]
-                cur.execute('insert into bicluster_programs (bicluster_id, program_id) values (%s,%s)', [regulon_id, programs[progname]])
+                cur.execute('insert into regulon_programs (regulon_id, program_id) values (%s,%s)', [regulon_id, programs[progname]])
         conn.commit()
     return programs
 
@@ -240,7 +223,7 @@ def import_regulons_programs_genes_disease_mapping(conn,
     df = pd.read_csv(os.path.join(args.indir, 'regulons_programs_genes_disease_mapping.csv'),
                      sep=',', header=0)
     with conn.cursor() as cur:
-        cur.execute('select count(*) from bc_program_genes')
+        cur.execute('select count(*) from regulon_program_genes')
         num_entries = cur.fetchone()[0]
         if num_entries > 0:
             return  # Skip, we already imported
@@ -252,7 +235,7 @@ def import_regulons_programs_genes_disease_mapping(conn,
             gene_id = genes[gene][0]
             program_id = programs[program]
             is_disease_relevant = row['is_disease_relevant']
-            cur.execute('insert into bc_program_genes (bicluster_id,program_id,gene_id,is_disease_relevant) values (%s,%s,%s,%s)', [regulon_id, program_id, gene_id, 1 if is_disease_relevant != 'False' else 0])
+            cur.execute('insert into regulon_program_genes (regulon_id,program_id,gene_id,is_disease_relevant) values (%s,%s,%s,%s)', [regulon_id, program_id, gene_id, 1 if is_disease_relevant != 'False' else 0])
         conn.commit()
 
 
@@ -397,30 +380,6 @@ def import_drug_data(conn, regulons, programs, genes, args):
     import_drug_programs(conn, df, drugs, programs)
 
 
-"""
-CMF_ID, CMFlow, CMFlowType, Mutation,
-Pathway,
-MutationSymbol, MutationEnsembl,
-RegulatorSymbol, RegulatorEnsembl,
-Regulon,
-MutationRegulatorEdge, -log10(p)_MutationRegulatorEdge, RegulatorRegulon_Spearman_R,
-RegulatorRegulon_Spearman_p-value, Regulon_stratification_t-statistic,
--log10(p)_Regulon_stratification, Fraction_of_edges_correctly_aligned,
-Fraction_of_aligned_and_diff_exp_edges, number_downstream_regulons,
-number_differentially_expressed_regulons,
-
-
-
-'-log10(p)_MutationRegulatorEdge', 'RegulatorRegulon_Spearman_R',
-       'RegulatorRegulon_Spearman_p-value',
-       'Regulon_stratification_t-statistic',
-       '-log10(p)_Regulon_stratification',
-       'Fraction_of_edges_correctly_aligned',
-       'Fraction_of_aligned_and_diff_exp_edges',
-       'number_downstream_regulons',
-       'number_differentially_expressed_regulons', 'CMFlowType'],
-
-"""
 def import_cmflows(conn, regulons, mutations, genes, tfs, filename, has_pathway=False):
     with conn.cursor() as cur:
         cmflow_types = read_catalog_table_as_map(conn, "cm_flow_types")
@@ -513,10 +472,10 @@ def import_cmflows(conn, regulons, mutations, genes, tfs, filename, has_pathway=
             num_diffexp_regulons = row['number_differentially_expressed_regulons']
 
             query = """insert into cm_flows (cmf_id,cmf_name,cmf_type_id,
-            mutation_id,cmf_pathway_id,mutation_gene_id,tf_id,bc_id,
-            bc_mutation_tf_role_id,bc_mutation_tf_pvalue,
-            bc_tf_spearman_r,bc_tf_spearman_pvalue,
-            bc_t_statistic,bc_log10_p_stratification,
+            mutation_id,cmf_pathway_id,mutation_gene_id,regulator_id,regulon_id,
+            regulon_mutation_regulator_role_id,regulon_mutation_regulator_pvalue,
+            regulon_regulator_spearman_r,regulon_regulator_spearman_pvalue,
+            regulon_t_statistic,regulon_log10_p_stratification,
             fraction_edges_correctly_aligned,fraction_aligned_diffexp_edges,
             num_downstream_regulons,num_diffexp_regulons) values
             (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
@@ -531,17 +490,6 @@ def import_cmflows(conn, regulons, mutations, genes, tfs, filename, has_pathway=
 
 DBNAME = 'gbm_api'
 
-HEADERS = [
-    "Mutation", "Regulator", "Regulon", "MutationRegulatorEdge", "-log10(p)_MutationRegulatorEdge",
-    "RegulatorRegulon_Spearman_R", "RegulatorRegulon_Spearman_p-value",
-    "Regulon_stratification_t-statistic-log10(p)_Regulon_stratification	Fraction_of_edges_correctly_aligned",
-    "TranscriptionalProgram", "HazardRatio", "HazardRatioPval", "RegulonGenes",
-    "DrugEnrichment",
-    "HallmarksEnrichment", "LinHallmarks",
-    "TargetClassEnrichment", "TargetClass_p-value",
-    "MechanismOfActionEnrichment", "MechanismOfAction_p-valuemirv_miRNA",
-    "PITA_miRNA", "PITA_pval", "TargetScan_miRNA", "TargetScan_pval"
-]
 
 def dbconn():
     return MySQLdb.connect(host="localhost", user="admin", passwd="password",
@@ -567,7 +515,6 @@ def read_synonyms(idconv_file):
     return ens2pref, ens2entrez
 
 
-
 def read_cox_map(args):
     # make cox map
     cox_map = {}
@@ -576,6 +523,7 @@ def read_cox_map(args):
     for regulon, row in cox_map_df.iterrows():
         cox_map['R-%d' % regulon] = {'HazardRatio': row['HR'], 'p-value': row['p-value']}
     return cox_map
+
 
 def read_regulons(args):
     # read the regulon map
