@@ -76,7 +76,7 @@ where bc.name=%s""", [regulon_id])
                    "role": TF_BC_ROLES[role]}
                   for tf, tf_preferred, role in cursor.fetchall()]
 
-        # bicluster genes
+        # regulon genes
         cursor.execute('select g.preferred from regulons bc join regulon_genes bcg on bc.id=bcg.regulon_id join genes g on g.id=bcg.gene_id where bc.name=%s', [regulon_id])
         genes = [row[0] for row in cursor.fetchall()]
 
