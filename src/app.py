@@ -45,13 +45,6 @@ def regulon_info(regulon_id):
         hazard_ratio = cursor.fetchone()[0]
 
         # mutation role -> transcription factors
-        """
-        cursor.execute('select m.name,tfs.ensembl_id,tfs.preferred,role from regulons bc join regulon_mutation_regulator bmt on bc.id=bmt.bicluster_id join mutations m on m.id=bmt.mutation_id join tfs on tfs.id=bmt.tf_id left join genes g on tfs.name=g.ensembl_id where bc.name=%s', [cluster_id])
-        mutations_tfs = [{"mutation": mutation,
-                          "tf": tf, "tf_preferred": tf_preferred if tf_preferred is not None else tf,
-                          "role": MUTATION_TF_ROLES[role]}
-                         for mutation, tf, tf_preferred, role in cursor.fetchall()]"""
-
         cursor.execute("""select mut.name as mutation,tfs.ensembl_id as regulator,
 tfs.preferred as reg_preferred,
 bmt.role_id as mutation_role,bc_tf.role_id as regulator_role_id,
@@ -72,47 +65,41 @@ join regulon_regulator as bc_tf on bc.id=bc_tf.regulon_id and tfs.id=bc_tf.regul
 from regulons bc join regulon_regulator bt on bc.id=bt.regulon_id
 join genes as tfs on tfs.id=bt.regulator_id
 where bc.name=%s""", [regulon_id])
-        tfs_bc = [{"regulator": tf, "regulator_preferred": tf_preferred if tf_preferred is not None else tf,
-                   "role": TF_BC_ROLES[role]}
-                  for tf, tf_preferred, role in cursor.fetchall()]
+        regulon_regulators = [
+            {
+                "regulator": tf,
+                "regulator_preferred": tf_preferred if tf_preferred is not None else tf,
+                "role": TF_BC_ROLES[role]
+            }
+            for tf, tf_preferred, role in cursor.fetchall()]
 
         # regulon genes
-        cursor.execute('select g.preferred from regulons bc join regulon_genes bcg on bc.id=bcg.regulon_id join genes g on g.id=bcg.gene_id where bc.name=%s', [regulon_id])
+        cursor.execute("""select g.preferred
+from regulons bc join regulon_genes bcg on bc.id=bcg.regulon_id
+join genes g on g.id=bcg.gene_id where bc.name=%s""",
+                       [regulon_id])
         genes = [row[0] for row in cursor.fetchall()]
 
         # regulon drugs
-        cursor.execute('select d.name from regulons bc join drug_regulons rd on rd.regulon_id=bc.id join drugs d on rd.drug_id=d.id where bc.name=%s',
+        cursor.execute("""select d.name
+from regulons bc join drug_regulons rd on rd.regulon_id=bc.id
+join drugs d on rd.drug_id=d.id where bc.name=%s""",
                        [regulon_id])
         drugs = [row[0] for row in cursor.fetchall()]
 
-        """
-        # mechanism of action
-        cursor.execute('select m.name from biclusters bc join regulon_mechanism_of_action rm on rm.regulon_id=bc.id join mechanisms_of_action m on rm.mechanism_of_action_id=m.id where bc.name=%s',
-                       [regulon_id])
-        moas = [row[0] for row in cursor.fetchall()]
+        # transcriptional programs
+        cursor.execute("""select tp.name
+from regulons reg join regulon_programs rp on reg.id=rp.regulon_id
+join trans_programs tp on tp.id=rp.program_id where reg.name=%s""", [regulon_id])
+        programs = [row[0] for row in cursor.fetchall()]
 
-        # hallmarks
-        cursor.execute('select h.name from biclusters bc join regulon_hallmarks rh on rh.regulon_id=bc.id join hallmarks h on rh.hallmark_id=h.id where bc.name=%s',
-                       [cluster_id])
-        hallmarks = [row[0] for row in cursor.fetchall()]
-
-        # Lin hallmarks
-        cursor.execute('select h.name from biclusters bc join regulon_lin_hallmarks rh on rh.regulon_id=bc.id join lin_hallmarks h on rh.hallmark_id=h.id where bc.name=%s',
-                       [cluster_id])
-        lin_hallmarks = [row[0] for row in cursor.fetchall()]
-
-
-        # target classes
-        cursor.execute('select tc.name,rtc.pval from biclusters bc join regulon_target_class rtc on rtc.regulon_id=bc.id join target_classes tc on rtc.target_class_id=tc.id where bc.name=%s',
-                       [cluster_id])
-        target_classes = [{'name': name, 'pval': pval} for name, pval in cursor.fetchall()]
-"""
         return jsonify(regulon=regulon_id,
                        hazard_ratio=hazard_ratio,
                        mutations_tfs=mutations_tfs,
-                       tfs_bc=tfs_bc,
+                       regulon_regulators=regulon_regulators,
                        genes=genes,
                        drugs=drugs,
+                       program=programs[0],  # for now, just return 1 element, it's actually 1:1
                        num_causal_flows=len(mutations_tfs))
     except:
         traceback.print_exc()
@@ -288,16 +275,16 @@ def causal_flows_with_program(program):
         where bc.id in (select regulon_id from regulon_programs bp join trans_programs p on bp.program_id=p.id where p.name=%s)""",
                        [program])
         result = [{
-            'bicluster': bc,
+            'regulon': regulon,
             'mutation': mut,
-            'regulator': tf,
-            'regulator_preferred': tf_preferred if tf_preferred is not None else tf,
+            'regulator': regulator,
+            'regulator_preferred': tf_preferred if tf_preferred is not None else regulator,
             'mutation_role': MUTATION_ROLES[mut_role],
             'regulator_role': REGULATOR_ROLES[tf_role],
             'hazard_ratio': hratio,
             'num_genes': ngenes,
             'trans_program': program
-        } for bc,mut,tf,tf_preferred,mut_role,tf_role,hratio,ngenes in cursor.fetchall()]
+        } for regulon,mut,regulator,tf_preferred,mut_role,tf_role,hratio,ngenes in cursor.fetchall()]
 
         return jsonify(entries=result)
     finally:
@@ -432,7 +419,7 @@ def program(progname):
         genes = []
         for regulon_id, name, cox_hazard_ratio, num_genes, num_causal_flows in cursor.fetchall():
             regulons.append({
-                'regulon_id': regulon_id,
+                'regulon': regulon_id,
                 'name': name,
                 'cox_hazard_ratio': cox_hazard_ratio,
                 'num_genes': num_genes,
@@ -640,16 +627,16 @@ def causal_flow():
     try:
         cursor.execute("""select bc.name,mut.name,tfs.name,g.preferred,bmt.role,bc_tf.role_id,bc.cox_hazard_ratio,bgg.num_genes,bc.trans_program from bc_mutation_tf bmt join biclusters bc on bmt.bicluster_id=bc.id join mutations mut on bmt.mutation_id=mut.id join tfs on bmt.tf_id=tfs.id join bc_tf on bc.id=bc_tf.bicluster_id and tfs.id=bc_tf.tf_id join (select bc.id,count(bg.gene_id) as num_genes from biclusters bc join bicluster_genes bg on bc.id=bg.bicluster_id group by bc.id) as bgg on bc.id=bgg.id left join genes g on g.ensembl_id=tfs.name""")
         return jsonify(entries=[{
-            'bicluster': bc,
+            'regulon': bc,
             'mutation': mut,
-            'regulator': tf,
+            'regulator': regulator,
             'regulator_preferred': tf_preferred if tf_preferred is not None else tf,
             'mutation_role': MUTATION_ROLES[mut_role],
             'regulator_role': REGULATOR_ROLES[tf_role],
             'hazard_ratio': hratio,
             'num_genes': ngenes,
             'trans_program': trans_program
-        } for bc,mut,tf,tf_preferred,mut_role,tf_role,hratio,ngenes,trans_program in cursor.fetchall()])
+        } for regulon,mut,regulator,tf_preferred,mut_role,tf_role,hratio,ngenes,trans_program in cursor.fetchall()])
     finally:
         cursor.close()
         conn.close()
