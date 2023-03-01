@@ -35,36 +35,23 @@ def dbconn():
                                    password=app.config['DATABASE_PASSWORD'],
                                    database=app.config['DATABASE_NAME'])
 
-@app.route('/regulon/<regulon_id>')
-def regulon_info(regulon_id):
+@app.route('/regulon/<regulon>')
+def regulon_info(regulon):
     """all genes in the specified bicluster"""
     conn = dbconn()
     cursor = conn.cursor(buffered=True)
     try:
-        cursor.execute('select cox_hazard_ratio from regulons where name=%s', [regulon_id])
-        hazard_ratio = cursor.fetchone()[0]
+        cursor.execute("select id,cox_hazard_ratio from regulons where name=%s", [regulon])
+        print("REGULON: ", regulon)
+        pk, hazard_ratio = cursor.fetchone()
+        cursor.execute("select count(*) from cm_flows where regulon_id=%s", [pk])
+        num_causalflows = cursor.fetchone()[0]
 
-        # mutation role -> transcription factors
-        cursor.execute("""select mut.name as mutation,tfs.ensembl_id as regulator,
-tfs.preferred as reg_preferred,
-bmt.role_id as mutation_role,bc_tf.role_id as regulator_role_id,
-bc.cox_hazard_ratio from regulon_mutation_regulator bmt join regulons bc on bmt.regulon_id=bc.id
-join mutations mut on bmt.mutation_id=mut.id join genes as tfs on bmt.regulator_id=tfs.id
-join regulon_regulator as bc_tf on bc.id=bc_tf.regulon_id and tfs.id=bc_tf.regulator_id
- where bc.name=%s""",
-                       [regulon_id])
-        mutations_tfs = [{"mutation": mutation,
-                          "regulator": regulator,
-                          "regulator_preferred": regulator_preferred if regulator_preferred is not None else tf,
-                          "mutation_role": MUTATION_TF_ROLES[mut_role],
-                          'regulator_role': TF_BC_ROLES[bc_role],
-                          'hazard_ratio': hazard_ratio}
-                         for mutation, regulator, regulator_preferred, mut_role, bc_role, hazard_ratio in cursor.fetchall()]
         # transcription factor -> bicluster
         cursor.execute("""select tfs.ensembl_id,tfs.preferred,role_id
 from regulons bc join regulon_regulator bt on bc.id=bt.regulon_id
 join genes as tfs on tfs.id=bt.regulator_id
-where bc.name=%s""", [regulon_id])
+where bc.name=%s""", [regulon])
         regulon_regulators = [
             {
                 "regulator": tf,
@@ -77,30 +64,78 @@ where bc.name=%s""", [regulon_id])
         cursor.execute("""select g.preferred
 from regulons bc join regulon_genes bcg on bc.id=bcg.regulon_id
 join genes g on g.id=bcg.gene_id where bc.name=%s""",
-                       [regulon_id])
+                       [regulon])
         genes = [row[0] for row in cursor.fetchall()]
 
         # regulon drugs
         cursor.execute("""select d.name
 from regulons bc join drug_regulons rd on rd.regulon_id=bc.id
 join drugs d on rd.drug_id=d.id where bc.name=%s""",
-                       [regulon_id])
+                       [regulon])
         drugs = [row[0] for row in cursor.fetchall()]
 
         # transcriptional programs
         cursor.execute("""select tp.name
 from regulons reg join regulon_programs rp on reg.id=rp.regulon_id
-join trans_programs tp on tp.id=rp.program_id where reg.name=%s""", [regulon_id])
+join trans_programs tp on tp.id=rp.program_id where reg.name=%s""", [regulon])
         programs = [row[0] for row in cursor.fetchall()]
 
-        return jsonify(regulon=regulon_id,
+        return jsonify(regulon=regulon,
                        hazard_ratio=hazard_ratio,
-                       mutations_tfs=mutations_tfs,
                        regulon_regulators=regulon_regulators,
                        genes=genes,
                        drugs=drugs,
                        program=programs[0],  # for now, just return 1 element, it's actually 1:1
-                       num_causal_flows=len(mutations_tfs))
+                       num_causal_flows=num_causalflows)
+    except:
+        traceback.print_exc()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/causalflows_for_regulon/<regulon>')
+def causalflows_for_regulon(regulon):
+    """all causal flows for the specified regulon"""
+    conn = dbconn()
+    cursor = conn.cursor(buffered=True)
+    try:
+        cursor.execute("""select cmf_id,cmf_name,m.name as mutation,cmft.name as cmftype,pw.name as pathway,mg.ensembl_id as mut_ensembl_id,mg.preferred as mut_preferred,tf.ensembl_id as tf_ensembl_id,tf.preferred as tf_preferred,regulon_mutation_regulator_role_id,regulon_mutation_regulator_pvalue,regulon_regulator_spearman_r,regulon_regulator_spearman_pvalue,regulon_t_statistic,regulon_log10_p_stratification,fraction_edges_correctly_aligned,fraction_aligned_diffexp_edges,num_downstream_regulons,num_diffexp_regulons from cm_flows cmf join regulons r on cmf.regulon_id=r.id join mutations m on cmf.mutation_id=m.id join cm_flow_types cmft on cmf.cmf_type_id=cmft.id left outer join cmf_pathways as pw on pw.id=cmf.cmf_pathway_id left outer join genes mg on cmf.mutation_gene_id=mg.id join genes tf on  cmf.regulator_id=tf.id where r.name=%s""", [regulon])
+
+
+        cm_flows = [
+            {
+                "cmf_id": cmf_id,
+                "cmf_name": cmf_name,
+                "cmf_type": cmf_type,
+                "pathway": pathway,
+                "mutation_gene_ensembl": mutgene_ensembl,
+                "mutation_gene_symbol": mutgene_symbol,
+                "mutation": mutation,
+                "regulator": regulator_ensembl,
+                "regulator_preferred": regulator_symbol if regulator_symbol is not None else regulator_ensembl,
+                "mutation_role": MUTATION_TF_ROLES[regulator_role],
+                "regulator_pvalue": regulon_mutation_regulator_pvalue,
+                "regulator_spearman_r": regulon_regulator_spearman_r,
+                "regulator_spearman_pvalue": regulon_regulator_spearman_pvalue,
+                "regulon_t_statistic": regulon_t_statistic,
+                "regulon_log10_p_stratification": regulon_log10_p_stratification,
+                "fraction_edges_correctly_aligned": fraction_edges_correctly_aligned,
+                "fraction_aligned_diffexp_edges": fraction_aligned_diffexp_edges,
+                "num_downstream_regulons": num_downstream_regulons,
+                "num_diffexp_regulons": num_diffexp_regulons
+            }
+            for cmf_id, cmf_name, mutation, cmf_type, pathway,
+            mutgene_ensembl, mutgene_symbol,
+            regulator_ensembl, regulator_symbol, regulator_role,
+            regulon_mutation_regulator_pvalue,
+            regulon_regulator_spearman_r, regulon_regulator_spearman_pvalue,
+            regulon_t_statistic, regulon_log10_p_stratification,
+            fraction_edges_correctly_aligned, fraction_aligned_diffexp_edges,
+            num_downstream_regulons, num_diffexp_regulons
+            in cursor.fetchall()]
+
+        return jsonify(cm_flows=cm_flows)
     except:
         traceback.print_exc()
     finally:
