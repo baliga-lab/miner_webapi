@@ -26,8 +26,8 @@ CORS(app)
 
 app.config.from_envvar('APP_SETTINGS')
 
-MUTATION_TF_ROLES = { 1: 'down-regulates', 2: 'up-regulates'}
-TF_BC_ROLES = { 1: 'activates', 2: 'represses' }
+MUTATION_REGULATOR_ROLES = { 1: 'down-regulates', 2: 'up-regulates'}
+REGULATOR_REGULON_ROLES = { 1: 'activates', 2: 'represses' }
 
 
 def dbconn():
@@ -56,7 +56,7 @@ where bc.name=%s""", [regulon])
             {
                 "regulator": tf,
                 "regulator_preferred": tf_preferred if tf_preferred is not None else tf,
-                "role": TF_BC_ROLES[role]
+                "role": REGULATOR_REGULON_ROLES[role]
             }
             for tf, tf_preferred, role in cursor.fetchall()]
 
@@ -114,7 +114,8 @@ def causalflows_for_regulon(regulon):
                 "mutation": mutation,
                 "regulator": regulator_ensembl,
                 "regulator_preferred": regulator_symbol if regulator_symbol is not None else regulator_ensembl,
-                "mutation_role": MUTATION_TF_ROLES[regulator_role],
+                "regulator_role": REGULATOR_REGULON_ROLES[mutation_regulator_role],
+                "mutation_role": MUTATION_REGULATOR_ROLES[1 if regulon_regulator_spearman_r < 0 else 2],
                 "regulator_pvalue": regulon_mutation_regulator_pvalue,
                 "regulator_spearman_r": regulon_regulator_spearman_r,
                 "regulator_spearman_pvalue": regulon_regulator_spearman_pvalue,
@@ -127,7 +128,7 @@ def causalflows_for_regulon(regulon):
             }
             for cmf_id, cmf_name, mutation, cmf_type, pathway,
             mutgene_ensembl, mutgene_symbol,
-            regulator_ensembl, regulator_symbol, regulator_role,
+            regulator_ensembl, regulator_symbol, mutation_regulator_role,
             regulon_mutation_regulator_pvalue,
             regulon_regulator_spearman_r, regulon_regulator_spearman_pvalue,
             regulon_t_statistic, regulon_log10_p_stratification,
@@ -394,7 +395,7 @@ join genes as tfs on tfs.id=bmt.regulator_id
 where m.name=%s""",
                        [mutation_name])
         result = [{"regulator": tf, "regulator_preferred": tf_preferred if tf_preferred is not None else tf, "bicluster": bc,
-                   "role": MUTATION_TF_ROLES[role],
+                   "role": MUTATION_REGULATOR_ROLES[role],
                    "bc_cox_hazard_ratio": bc_cox_hazard_ratio,
                    "trans_program": ""}  # trans_program is N:M TODO
                   for tf, tf_preferred, bc, role,bc_cox_hazard_ratio in cursor.fetchall()]
@@ -416,7 +417,7 @@ join regulon_mutation_regulator bmt on bmt.regulon_id=bt.regulon_id and bmt.regu
 join mutations mut on mut.id=bmt.mutation_id where tfs.ensembl_id=%s""",
                        [tf_name])
         result = [{
-            "regulon": bc, "role": TF_BC_ROLES[role],
+            "regulon": bc, "role": REGULATOR_REGULON_ROLES[role],
             "hazard_ratio": bc_hazard_ratio,
             "mutation": mut,
         } for bc, role, bc_hazard_ratio, mut in cursor.fetchall()]
@@ -576,7 +577,7 @@ def bicluster_network(cluster_id):
             tf = tf_preferred if tf_preferred is not None else tf
             elements.append({"data": {"id": tf}, "classes": "tf"})
             elements.append({"data": {"id": str(edge_count), "source": tf, "target": cluster_id},
-                                      "classes": TF_BC_ROLES[role]})
+                                      "classes": REGULATOR_REGULON_ROLES[role]})
             edge_count += 1
 
         # mutation role -> transcription factors
@@ -585,7 +586,7 @@ def bicluster_network(cluster_id):
             tf = tf_preferred if tf_preferred is not None else tf
             elements.append({"data": {"id": mutation}, "classes": "mutation"})
             elements.append({"data": {"id": str(edge_count), "source": mutation, "target": tf},
-                                      "classes": MUTATION_TF_ROLES[role].replace('-', '_') })
+                                      "classes": MUTATION_REGULATOR_ROLES[role].replace('-', '_') })
             edge_count += 1
 
 
