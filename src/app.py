@@ -161,6 +161,21 @@ def causalflows_for_regulator(regulator):
         conn.close()
 
 
+@app.route('/causalflows_for_program/<program>')
+def causalflows_for_program(program):
+    """all causal flows for all regulons with the specified program"""
+    conn = dbconn()
+    cursor = conn.cursor(buffered=True)
+    try:
+        cursor.execute("""select cmf_id,r.name,m.name as mutation,cmft.name as cmftype,pw.name as pathway,mg.ensembl_id as mut_ensembl_id,mg.preferred as mut_preferred,tf.ensembl_id as tf_ensembl_id,tf.preferred as tf_preferred,regulon_mutation_regulator_role_id,regulon_mutation_regulator_pvalue,regulon_regulator_spearman_r,regulon_regulator_spearman_pvalue,regulon_t_statistic,regulon_log10_p_stratification,fraction_edges_correctly_aligned,fraction_aligned_diffexp_edges,num_downstream_regulons,num_diffexp_regulons from cm_flows cmf join regulons r on cmf.regulon_id=r.id join mutations m on cmf.mutation_id=m.id join cm_flow_types cmft on cmf.cmf_type_id=cmft.id left outer join cmf_pathways as pw on pw.id=cmf.cmf_pathway_id left outer join genes mg on cmf.mutation_gene_id=mg.id join genes tf on cmf.regulator_id=tf.id where r.id in (select regulon_id from regulon_programs rp join trans_programs p on rp.program_id=p.id where p.name=%s)""", [program])
+        return _make_causalflow_results(cursor)
+    except:
+        traceback.print_exc()
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @app.route('/search/<term>')
 def simple_search(term):
     """retrieves the type of the term or empty result if not found"""
@@ -301,45 +316,6 @@ def causal_flow_search(term):
             by_mutation=by_mutation,
             by_regulator=by_regulator,
             by_reggenes=by_reggenes)
-    finally:
-        cursor.close()
-        conn.close()
-
-
-@app.route('/causal_flows_with_program/<program>')
-def causal_flows_with_program(program):
-    """retrieves all causal flows containing this program"""
-    conn = dbconn()
-    cursor = conn.cursor()
-    try:
-        # search causal flows by regulon genes
-        cursor.execute("""
-        select bc.name,mut.name,tfs.ensembl_id,tfs.preferred,bmt.role_id,bc_tf.role_id,bc.cox_hazard_ratio,bgg.num_genes
-        from regulon_mutation_regulator bmt
-        join regulons bc on bmt.regulon_id=bc.id
-        join mutations mut on bmt.mutation_id=mut.id
-        join genes as tfs on bmt.regulator_id=tfs.id
-        join regulon_regulator bc_tf on bc.id=bc_tf.regulon_id and tfs.id=bc_tf.regulator_id
-        join
-          (select bc.id,count(bg.gene_id) as num_genes
-           from regulons bc
-           join regulon_genes bg on bc.id=bg.regulon_id group by bc.id) as bgg
-        on bc.id=bgg.id
-        where bc.id in (select regulon_id from regulon_programs bp join trans_programs p on bp.program_id=p.id where p.name=%s)""",
-                       [program])
-        result = [{
-            'regulon': regulon,
-            'mutation': mut,
-            'regulator': regulator,
-            'regulator_preferred': tf_preferred if tf_preferred is not None else regulator,
-            'mutation_role': MUTATION_ROLES[mut_role],
-            'regulator_role': REGULATOR_ROLES[tf_role],
-            'hazard_ratio': hratio,
-            'num_genes': ngenes,
-            'trans_program': program
-        } for regulon,mut,regulator,tf_preferred,mut_role,tf_role,hratio,ngenes in cursor.fetchall()]
-
-        return jsonify(entries=result)
     finally:
         cursor.close()
         conn.close()
