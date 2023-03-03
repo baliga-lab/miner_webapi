@@ -28,7 +28,7 @@ if __name__ == '__main__':
     #print(ens2entrez)
 
     with open(args.outfile, 'w') as outfile:
-        outfile.write("preferred\tensembl\tentrez\n")
+        outfile.write("ensembl\tpreferred\tentrez\n")
         for ens, symbol in ens2symbol.items():
             try:
                 entrez = ens2entrez[ens]

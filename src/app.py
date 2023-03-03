@@ -191,51 +191,6 @@ def causalflows_for_mutation(mutation):
         conn.close()
 
 
-@app.route('/search/<term>')
-def simple_search(term):
-    """retrieves the type of the term or empty result if not found"""
-    conn = dbconn()
-    cursor = conn.cursor()
-    try:
-        # Search for programs
-        if term.startswith('Pr-'):
-            try:
-                prognum = int(term.replace('Pr-', ''))
-                #cursor.execute('select count(*) as num_regulons,bcg2.num_genes from biclusters bc join (select trans_program,count(*) as num_genes from biclusters bc2 join bicluster_genes bcg on bc2.id=bcg.bicluster_id group by trans_program) bcg2 on bcg2.trans_program=bc.trans_program where bc.trans_program=%s', [prognum])
-                cursor.execute('select count(*) from biclusters where trans_program=%s', [prognum])
-                num_results = cursor.fetchone()[0]
-                if num_results > 0:
-                    return jsonify(found="yes", data_type="program")
-            except:
-                pass
-            # no results
-            return jsonify(found="no", data_type="NA")
-
-        cursor.execute('select count(*) from tfs where tfs.name=%s', [term])
-        num_results = cursor.fetchone()[0]
-        if num_results > 0:
-            return jsonify(found="yes", data_type="regulator")
-        cursor.execute('select count(*) from mutations where mutations.name=%s', [term])
-        num_results = cursor.fetchone()[0]
-        if num_results > 0:
-            return jsonify(found="yes", data_type="mutation")
-        cursor.execute('select count(*) from biclusters bc where bc.name=%s', [term])
-        num_results = cursor.fetchone()[0]
-        if num_results > 0:
-            return jsonify(found="yes", data_type="bicluster")
-        cursor.execute('select count(*) from genes where ensembl_id=%s or preferred=%s',
-                       [term, term])
-        num_results = cursor.fetchone()[0]
-        if num_results > 0:
-            return jsonify(found="yes", data_type="gene")
-
-        # transcription factor -> bicluster
-        return jsonify(found="no", data_type="NA")
-    finally:
-        cursor.close()
-        conn.close()
-
-
 @app.route('/cfsearch/<term>')
 def causal_flow_search(term):
     return jsonify(found="yes")

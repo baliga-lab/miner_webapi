@@ -23,7 +23,7 @@ def fill_roles(conn):
             cur.execute("insert into regulon_mutation_regulator_roles (id, name) values (2, 'up-regulates')")
             conn.commit()
 
-def import_regulators(conn, df, genes):
+def import_regulators(conn, df, genes, ens2pref, ens2entrez):
     """Import regulators"""
     regulators = set(df['Regulator'])
     result = {}
@@ -37,7 +37,15 @@ def import_regulators(conn, df, genes):
                 cur.execute('update genes set is_regulator=1 where id=%s', [gene_id])
                 result[ens] = gene_id
             else:
-                cur.execute("insert into genes (ensembl_id,is_regulator) values (%s,1)", [ens])
+                try:
+                    entrez = ens2entrez[ens]
+                except KeyError:
+                    entrez = None
+                try:
+                    pref = ens2pref[ens]
+                except KeyError:
+                    pref = None
+                cur.execute("insert into genes (ensembl_id,entrez_id,preferred,is_regulator) values (%s,%s,%s,1)", [ens, entrez, pref])
                 regulator_id = cur.lastrowid
                 genes[ens] = (regulator_id, None, None)
                 result[ens] = regulator_id
@@ -86,12 +94,13 @@ def import_genes(conn, ens_genes, ens2pref, ens2entrez):
             for ens in sorted(ens_genes):
                 try:
                     entrez = ens2entrez[ens]
-                except:
+                except KeyError:
                     entrez = None
                 try:
                     pref = ens2pref[ens]
-                except:
+                except KeyError:
                     pref = None
+
                 cur.execute('insert into genes (ensembl_id,entrez_id,preferred) values (%s,%s,%s)',
                             [ens, entrez, pref])
                 result[ens] = (cur.lastrowid, entrez, pref)
@@ -380,7 +389,8 @@ def import_drug_data(conn, regulons, programs, genes, args):
     import_drug_programs(conn, df, drugs, programs)
 
 
-def import_cmflows(conn, regulons, mutations, genes, tfs, filename, has_pathway=False):
+def import_cmflows(conn, regulons, mutations, genes, tfs, filename, ens2pref, ens2entrez,
+                   has_pathway=False):
     with conn.cursor() as cur:
         cmflow_types = read_catalog_table_as_map(conn, "cm_flow_types")
         cmf_pathways = read_catalog_table_as_map(conn, "cmf_pathways")
@@ -560,7 +570,7 @@ if __name__ == '__main__':
     mutations = import_mutations(conn, df)
     genes = import_genes(conn, gene_names, ens2pref, ens2entrez)
 
-    regulators = import_regulators(conn, df, genes)
+    regulators = import_regulators(conn, df, genes, ens2pref, ens2entrez)
     regulons = import_regulons(conn, regulon_map, cox_map, mutations)
     import_mutation_regulator(conn, df, regulons, mutations, regulators)
     import_regulon_regulator(conn, df, regulons, regulators)
@@ -571,5 +581,9 @@ if __name__ == '__main__':
                                                    regulons, programs, genes,
                                                    args)
     import_drug_data(conn, regulons, programs, genes, args)
-    import_cmflows(conn, regulons, mutations, genes, regulators, "diseaseRelevantCMFlowsGenes.csv", False)
-    import_cmflows(conn, regulons, mutations, genes, regulators, "diseaseRelevantCMFlowsPathways.csv", True)
+    import_cmflows(conn, regulons, mutations, genes, regulators,
+                   "diseaseRelevantCMFlowsGenes.csv", ens2pref, ens2entrez,
+                   False)
+    import_cmflows(conn, regulons, mutations, genes, regulators,
+                   "diseaseRelevantCMFlowsPathways.csv", ens2pref, ens2entrez,
+                   True)
