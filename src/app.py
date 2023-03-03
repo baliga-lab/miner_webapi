@@ -176,6 +176,21 @@ def causalflows_for_program(program):
         conn.close()
 
 
+@app.route('/causalflows_for_mutation/<mutation>')
+def causalflows_for_mutation(mutation):
+    """all causal flows for the specified mutation"""
+    conn = dbconn()
+    cursor = conn.cursor(buffered=True)
+    try:
+        cursor.execute("""select cmf_id,r.name,m.name as mutation,cmft.name as cmftype,pw.name as pathway,mg.ensembl_id as mut_ensembl_id,mg.preferred as mut_preferred,tf.ensembl_id as tf_ensembl_id,tf.preferred as tf_preferred,regulon_mutation_regulator_role_id,regulon_mutation_regulator_pvalue,regulon_regulator_spearman_r,regulon_regulator_spearman_pvalue,regulon_t_statistic,regulon_log10_p_stratification,fraction_edges_correctly_aligned,fraction_aligned_diffexp_edges,num_downstream_regulons,num_diffexp_regulons from cm_flows cmf join regulons r on cmf.regulon_id=r.id join mutations m on cmf.mutation_id=m.id join cm_flow_types cmft on cmf.cmf_type_id=cmft.id left outer join cmf_pathways as pw on pw.id=cmf.cmf_pathway_id left outer join genes mg on cmf.mutation_gene_id=mg.id join genes tf on cmf.regulator_id=tf.id where m.name=%s""", [mutation])
+        return _make_causalflow_results(cursor)
+    except:
+        traceback.print_exc()
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @app.route('/search/<term>')
 def simple_search(term):
     """retrieves the type of the term or empty result if not found"""
