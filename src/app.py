@@ -505,14 +505,14 @@ def summary():
         conn.close()
 
 
-@app.route('/gene_info/<gene_name>')
-def gene_info(gene_name):
+@app.route('/gene_info/<gene>')
+def gene_info(gene):
     """return all biclusters that contain this gene"""
     conn = dbconn()
     cursor = conn.cursor()
     try:
         cursor.execute('select entrez_id,ensembl_id,preferred from genes where entrez_id=%s or ensembl_id=%s or preferred=%s',
-                       [gene_name, gene_name, gene_name])
+                       [gene, gene, gene])
         results = [(entrez_id, ensembl_id, preferred)
                    for entrez_id, ensembl_id, preferred in cursor.fetchall()]
         if len(results) > 0:
