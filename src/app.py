@@ -238,103 +238,12 @@ def simple_search(term):
 
 @app.route('/cfsearch/<term>')
 def causal_flow_search(term):
-    """retrieves all causal flows related to the search term"""
-    conn = dbconn()
-    cursor = conn.cursor()
-    mut_aliases = {
-        't(4;14)': ['NSD2', 'WHSC1'],
-        't(11;14)': ['CCND1'],
-        't(14;16)': ['MAF'],
-        't(8;14)': ['MYC'],
+    return jsonify(found="yes")
 
-        'NSD2': ['t(4;14)', 'WHSC1'],
-        'CCND1': ['t(11;14)'],
-        'MAF': ['t(14;16)'],
-        'MYC': ['t(8;14)'],
 
-        'WHSC1': ['t(4;14)', 'NSD2']
-    }
-    try:
-        # search causal flows by mutation or regulator
-        q = "select bc.name,mut.name,tfs.name,g.preferred,bmt.role,bc_tf.role,bc.cox_hazard_ratio,bgg.num_genes,bc.trans_program from bc_mutation_tf bmt join biclusters bc on bmt.bicluster_id=bc.id join mutations mut on bmt.mutation_id=mut.id join tfs on bmt.tf_id=tfs.id join bc_tf on bc.id=bc_tf.bicluster_id and tfs.id=bc_tf.tf_id join (select bc.id,count(bg.gene_id) as num_genes from biclusters bc join bicluster_genes bg on bc.id=bg.bicluster_id group by bc.id) as bgg on bc.id=bgg.id left join genes g on g.ensembl_id=tfs.name where "
-
-        reg_params = [term]
-        regulator_match_clause = " g.preferred=%s"
-        if term in mut_aliases:
-            for alias in mut_aliases[term]:
-                regulator_match_clause += " or g.preferred=%s"
-                reg_params.append(alias)
-        q += regulator_match_clause
-
-        mut_params = [term]
-        mutation_match_clause = " or mut.name=%s"
-        if term in mut_aliases:
-            for alias in mut_aliases[term]:
-                mutation_match_clause += " or mut.name=%s"
-                mut_params.append(alias)
-        q += mutation_match_clause
-        #print(q)
-        qargs = reg_params + mut_params
-        #print(qargs)
-        cursor.execute(q, qargs)
-
-        by_mutation = []
-        by_regulator = []
-        for bc,mut,tf,tf_preferred,mut_role,tf_role,hratio,ngenes,trans_program in cursor.fetchall():
-            entry = {
-                'bicluster': bc,
-                'mutation': mut,
-                'regulator': tf,
-                'regulator_preferred': tf_preferred if tf_preferred is not None else tf,
-                'mutation_role': MUTATION_ROLES[mut_role],
-                'regulator_role': REGULATOR_ROLES[tf_role],
-                'hazard_ratio': hratio,
-                'num_genes': ngenes,
-                'trans_program': trans_program
-            }
-            if tf_preferred == term or term in mut_aliases and tf_preferred in mut_aliases[term]:
-                by_regulator.append(entry)
-
-            if mut == term or term in mut_aliases and mut in mut_aliases[term]:
-                by_mutation.append(entry)
-
-        # search causal flows by regulon genes
-        q = "select bc.name,mut.name,tfs.name,g.preferred,bmt.role,bc_tf.role,bc.cox_hazard_ratio,bgg.num_genes,bc.trans_program from bc_mutation_tf bmt join biclusters bc on bmt.bicluster_id=bc.id join mutations mut on bmt.mutation_id=mut.id join tfs on bmt.tf_id=tfs.id join bc_tf on bc.id=bc_tf.bicluster_id and tfs.id=bc_tf.tf_id join (select bc.id,count(bg.gene_id) as num_genes from biclusters bc join bicluster_genes bg on bc.id=bg.bicluster_id group by bc.id) as bgg on bc.id=bgg.id left join genes g on g.ensembl_id=tfs.name where bc.id in (select bicluster_id from bicluster_genes bg join genes g on bg.gene_id=g.id where"
-
-        match_params = [term]
-        match_clause = " g.preferred=%s"
-        if term in mut_aliases:
-            for alias in mut_aliases[term]:
-                match_clause += " or g.preferred=%s"
-                match_params.append(alias)
-
-        q += match_clause
-        q += ")"
-        #print(q)
-        cursor.execute(q, match_params)
-        by_reggenes = [{
-            'bicluster': bc,
-            'mutation': mut,
-            'regulator': tf,
-            'regulator_preferred': tf_preferred if tf_preferred is not None else tf,
-            'mutation_role': MUTATION_ROLES[mut_role],
-            'regulator_role': REGULATOR_ROLES[tf_role],
-            'hazard_ratio': hratio,
-            'num_genes': ngenes,
-            'trans_program': trans_program
-        } for bc,mut,tf,tf_preferred,mut_role,tf_role,hratio,ngenes,trans_program in cursor.fetchall()]
-
-        if len(by_mutation) == 0 and len(by_regulator) == 0 and len(by_reggenes) == 0:
-            return jsonify(found='no')
-
-        return jsonify(found="yes",
-            by_mutation=by_mutation,
-            by_regulator=by_regulator,
-            by_reggenes=by_reggenes)
-    finally:
-        cursor.close()
-        conn.close()
-
+def _program_completions(cursor, prefix):
+    cursor.execute('select distinct name from trans_programs where name like \"' + prefix + '%\" order by name')
+    return [{'id': row[0], 'label': row[0], 'value': row[0]} for row in cursor.fetchall()]
 
 @app.route('/completions/<term>')
 def completions(term):
@@ -342,49 +251,16 @@ def completions(term):
     conn = dbconn()
     cursor = conn.cursor()
     try:
-        if  term.startswith('Pr-'):
-            prefix = term.replace('Pr-', '')
-            if len(prefix) > 0:
-                cursor.execute('select distinct trans_program from biclusters where trans_program like \"' + prefix + '%\" order by trans_program')
-            else:
-                cursor.execute('select distinct trans_program from biclusters order by trans_program')
-            completions = [{'id': 'Pr-%s' % row[0],
-                            'label': 'Pr-%s' % row[0],
-                            'value': 'Pr-%s' % row[0]} for row in cursor.fetchall()]
+        if term.startswith('P-'):
+            completions = _program_completions(cursor, term)
         else:
-            cursor.execute('select name from tfs where name like %s', ["%s%%" % term])
-            terms = [{"id": row[0], "label": row[0], "value": row[0]}
-                     for row in cursor.fetchall()]
-            cursor.execute('select name from mutations where name like %s',
-                           ["%s%%" % term])
-            mutations = [{"id": row[0], "label": row[0], "value": row[0]}
-                         for row in cursor.fetchall()]
-            cursor.execute('select preferred from genes where preferred like %s',
-                           ["%s%%" % term])
-            gene_preferred = [{"id": row[0], "label": row[0], "value": row[0]}
-                              for row in cursor.fetchall()]
-            cursor.execute('select ensembl_id from genes where ensembl_id like %s',
-                           ["%s%%" % term])
-            gene_ensembl = [{"id": row[0], "label": row[0], "value": row[0]}
-                            for row in cursor.fetchall()]
+            cursor.execute('select preferred from genes where preferred like %s', ["%s%%" % term])
+            preferred = [{"id": row[0], "label": row[0], "value": row[0]} for row in cursor.fetchall()]
+            cursor.execute('select ensembl_id from genes where ensembl_id like %s', ["%s%%" % term])
+            ensembl = [{"id": row[0], "label": row[0], "value": row[0]} for row in cursor.fetchall()]
 
-            completions = terms + mutations + gene_preferred + gene_ensembl
+            completions = preferred + ensembl
         return jsonify(completions=completions)
-    finally:
-        cursor.close()
-        conn.close()
-
-
-@app.route('/biclusters')
-def biclusters():
-    """all biclusters in the system"""
-    conn = dbconn()
-    cursor = conn.cursor()
-    try:
-        cursor.execute('select name, cox_hazard_ratio from biclusters')
-        biclusters = [{'cluster_id': row[0], 'hazard_ratio': row[1]}
-                      for row in cursor.fetchall()]
-        return jsonify(biclusters=biclusters)
     finally:
         cursor.close()
         conn.close()
@@ -640,25 +516,6 @@ def bicluster_enrichment(cluster_id):
     return jsonify(expressions=series, conditions=conds)
 
 
-@app.route('/patient/<patient_id>')
-def patient_info(patient_id):
-    """patient information"""
-    conn = dbconn()
-    cursor = conn.cursor()
-    try:
-        cursor.execute('select pfs_survival, pfs_status, age, sex from patients where name=%s',
-                       [patient_id])
-        surv, status, age, sex = cursor.fetchone()
-        cursor.execute('select t.name,pt.tf_activity from patient_tf pt join patients p on pt.patient_id=p.id join tfs t on pt.tf_id=t.id where p.name=%s', [patient_id])
-        tf_activity = [{'tf': tf, 'activity': activity} for tf, activity in cursor.fetchall()]
-        return jsonify(patient=patient_id, pfs_survival=surv, pfs_status=status,
-                       age=age, sex=sex,
-                       tf_activity=tf_activity)
-    finally:
-        cursor.close()
-        conn.close()
-
-
 MUTATION_ROLES = {1: 'down-regulates', 2: 'up-regulates'}
 REGULATOR_ROLES = {1: 'activates', 2: 'represses'}
 
@@ -681,106 +538,6 @@ def causal_flow():
             'num_genes': ngenes,
             'trans_program': trans_program
         } for regulon,mut,regulator,tf_preferred,mut_role,tf_role,hratio,ngenes,trans_program in cursor.fetchall()])
-    finally:
-        cursor.close()
-        conn.close()
-
-
-@app.route('/bicluster_patients/<cluster_id>')
-def bicluster_patients(cluster_id):
-    """returns the information for all the patients in the specified bicluster"""
-    conn = dbconn()
-    cursor = conn.cursor()
-    data = []
-    try:
-        cursor.execute('select p.name,p.pfs_survival,p.pfs_status,p.sex,p.age from bicluster_patients bp join patients p on bp.patient_id=p.id join biclusters bc on bp.bicluster_id=bc.id where bc.name=%s', [cluster_id])
-        for patient, survival, survival_status, sex, age in cursor.fetchall():
-            data.append({'name': patient, 'survival': survival,
-                         'survival_status': survival_status, 'sex': sex, 'age': age})
-        return jsonify(data=data)
-    finally:
-        cursor.close()
-        conn.close()
-
-
-@app.route('/bicluster_patient_survival/<cluster_id>')
-def bicluster_patient_survival(cluster_id):
-    """returns the information for all the patients in the specified bicluster"""
-    conn = dbconn()
-    cursor = conn.cursor()
-    try:
-        cursor.execute('select p.pfs_survival from bicluster_patients bp join patients p on bp.patient_id=p.id join biclusters bc on bp.bicluster_id=bc.id where bc.name=%s and p.pfs_survival is not null', [cluster_id])
-        values = [row[0] for row in cursor.fetchall()]
-        return jsonify(data=values)
-    finally:
-        cursor.close()
-        conn.close()
-
-
-@app.route('/bicluster_patient_ages/<cluster_id>')
-def bicluster_patient_ages(cluster_id):
-    """returns the information for all the patients in the specified bicluster"""
-    conn = dbconn()
-    cursor = conn.cursor()
-    try:
-        cursor.execute('select p.age from bicluster_patients bp join patients p on bp.patient_id=p.id join biclusters bc on bp.bicluster_id=bc.id where bc.name=%s and p.age is not null', [cluster_id])
-        values = [int(row[0]) for row in cursor.fetchall()]
-        return jsonify(data=values)
-    finally:
-        cursor.close()
-        conn.close()
-
-
-@app.route('/bicluster_patient_status/<cluster_id>')
-def bicluster_patient_status(cluster_id):
-    """returns the information for all the patients in the specified bicluster"""
-    conn = dbconn()
-    cursor = conn.cursor()
-    try:
-        cursor.execute('select p.age,count(p.age) from bicluster_patients bp join patients p on bp.patient_id=p.id join biclusters bc on bp.bicluster_id=bc.id where bc.name=%s and p.age is not null group by p.age;', [cluster_id])
-        ages = [(age, count) for age, count in cursor.fetchall()]
-        total = sum([t[1] for t in ages])
-        buckets = defaultdict(int)
-        age_values = []
-        keys = ['<= 45', '46-65', '> 65']
-        for age, count in ages:
-            if age <= 45:
-                buckets['<= 45'] += count
-            elif age <= 65:
-                buckets['46-65'] += count
-            else:
-                buckets['> 65'] += count
-        for key, count in buckets.items():
-            age_values.append({'name': key, 'y': float(count) / float(total)})
-
-        cursor.execute('select p.sex,count(p.sex) from bicluster_patients bp join patients p on bp.patient_id=p.id join biclusters bc on bp.bicluster_id=bc.id where bc.name=%s and p.sex is not null group by p.sex;', [cluster_id])
-        sex_map = {sex: count for sex, count in cursor.fetchall()}
-        total = sum(sex_map.values())
-        sexvals = []
-        if total > 0:
-            if 1 in sex_map:
-                sexvals.append({'name': 'male', 'y': float(sex_map[1]) / float(total)})
-            if 2 in sex_map:
-                sexvals.append({'name': 'female', 'y': float(sex_map[2]) / float(total)})
-
-        cursor.execute('select p.pfs_survival,count(p.pfs_survival) from bicluster_patients bp join patients p on bp.patient_id=p.id join biclusters bc on bp.bicluster_id=bc.id where bc.name=%s and p.pfs_survival is not null group by p.pfs_survival;', [cluster_id])
-        surv_buckets = defaultdict(int)
-        surv_values = []
-        survs = [(survival, count) for survival, count in cursor.fetchall()]
-        total = sum([t[1] for t in survs])
-        keys = ['< 500', '500-1000', '> 1000']
-        for surv, count in survs:
-            if surv < 500:
-                surv_buckets['< 500'] += count
-            elif surv <= 1000:
-                surv_buckets['500-1000'] += count
-            else:
-                surv_buckets['> 1000'] += count
-        for key, count in surv_buckets.items():
-            surv_values.append({'name': key, 'y': float(count) / float(total)})
-
-        return jsonify(data={'age': age_values, 'sex': sexvals, 'survival': surv_values})
-
     finally:
         cursor.close()
         conn.close()
