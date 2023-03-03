@@ -442,7 +442,7 @@ def import_cmflows(conn, regulons, mutations, genes, tfs, filename, has_pathway=
                         genes[mut_ens] = (mutation_gene_id, None, mut_sym)
                         symbol2gene_id[mut_sym] = mutation_gene_id
                     else:
-                        mutation_gene_id = None
+                        mutation_gene_id = symbol2gene_id[mut_sym]
                 else:
                     if mut_ens not in genes:
                         # Insert as a new gene
