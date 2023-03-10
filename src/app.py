@@ -102,6 +102,28 @@ def _make_causalflow_row(conn, row):
      num_downstream_regulons, num_diffexp_regulons) = row
 
     # Addon: extract drugs associated with the row according to rules
+    drugs = []
+    with conn.cursor() as cur:
+        # program related drugs
+        #cur.execute("select distinct d.name from drugs d join drug_programs dp on d.id=dp.drug_id join trans_programs p on p.id=dp.program_id join target_type_models ttm on d.target_type_model_id=ttm.id where ttm.name='Regulon_Regulator' and dp.program_id in (select rp.program_id from regulon_programs rp join regulons r on rp.regulon_id=r.id where r.name=%s)", [regulon])
+        cur.execute("select distinct d.name from drugs d join drug_regulons dr on d.id=dr.drug_id join regulons r on r.id=dr.regulon_id join target_type_models ttm on d.target_type_model_id=ttm.id where ttm.name='Regulon_Regulator' and r.name=%s", [regulon])
+
+        for row in cur.fetchall():
+            drugs.append(row[0])
+
+        # regulon related drugs
+        #cur.execute("select distinct d.name from drugs d join drug_targets dt on d.id=dt.drug_id join genes g on g.id=dt.gene_id join target_type_models ttm on d.target_type_model_id=ttm.id where ttm.name='Regulon_Gene' and g.id in (select g.id from genes g join regulon_genes rg on g.id=rg.gene_id join regulons r on r.id=rg.regulon_id where r.name=%s)", [regulon])
+        cur.execute("select g.id from genes g join regulon_genes rg on g.id=rg.gene_id join regulons r on r.id=rg.regulon_id where r.name=%s", [regulon])
+        gene_ids = [str(row[0]) for row in cur.fetchall()]
+        if len(gene_ids) > 0:
+            gids = "(%s)" % ','.join(gene_ids)
+            query = "select distinct d.name from drugs d join drug_targets dt on d.id=dt.drug_id join genes g on g.id=dt.gene_id join target_type_models ttm on d.target_type_model_id=ttm.id where ttm.name='Regulon_Gene' and g.id in " + gids
+            print(query)
+            cur.execute(query)
+            for row in cur.fetchall():
+                drugs.append(row[0])
+
+        #cur.execute("select distinct d.name from drugs d join drug_regulons dr on d.id=dr.drug_id join regulons r on r.id=dr.regulon_id join target_type_models ttm on d.target_type_model_id=ttm.id where ttm.name='Regulon_Gene'")
     return {
         "cmf_id": cmf_id,
         "regulon": regulon,
@@ -122,7 +144,8 @@ def _make_causalflow_row(conn, row):
         "fraction_edges_correctly_aligned": fraction_edges_correctly_aligned,
         "fraction_aligned_diffexp_edges": fraction_aligned_diffexp_edges,
         "num_downstream_regulons": num_downstream_regulons,
-        "num_diffexp_regulons": num_diffexp_regulons
+        "num_diffexp_regulons": num_diffexp_regulons,
+        "drugs": drugs
     }
 
 def _make_causalflow_results(conn, cursor):
@@ -423,103 +446,6 @@ def gene_info(gene):
     finally:
         cursor.close()
         conn.close()
-
-
-@app.route('/biclusters_for_gene/<gene_name>')
-def biclusters_for_gene(gene_name):
-    """return all biclusters that contain this gene"""
-    conn = dbconn()
-    cursor = conn.cursor()
-    try:
-        cursor.execute('select bc.name,cox_hazard_ratio from bicluster_genes bg join genes g on bg.gene_id=g.id join biclusters bc on bc.id=bg.bicluster_id where g.entrez_id=%s or g.ensembl_id=%s or g.preferred=%s',
-                       [gene_name, gene_name, gene_name])
-        return jsonify(biclusters=[{'cluster_id': row[0],
-                                    'hazard_ratio': row[1]} for row in cursor.fetchall()])
-    finally:
-        cursor.close()
-        conn.close()
-
-
-@app.route('/bicluster_network/<cluster_id>')
-def bicluster_network(cluster_id):
-    """all genes in the specified bicluster"""
-    conn = dbconn()
-    cursor = conn.cursor()
-    elements = [{"data": {"id": cluster_id}, "classes": "bicluster"}]
-    try:
-        edge_count = 0
-        # retrieve the mutation and transcription factor nodes/edges
-        # transcription factor -> bicluster
-        cursor.execute('select tfs.ensembl_id,tfs.preferred,role from biclusters bc join regulon_regulator bt on bc.id=bt.regulon_id join genes tfs on tfs.id=bt.regulator_id where bc.name=%s', [cluster_id])
-        for tf, tf_preferred, role in cursor.fetchall():
-            tf = tf_preferred if tf_preferred is not None else tf
-            elements.append({"data": {"id": tf}, "classes": "tf"})
-            elements.append({"data": {"id": str(edge_count), "source": tf, "target": cluster_id},
-                                      "classes": REGULATOR_REGULON_ROLES[role]})
-            edge_count += 1
-
-        # mutation role -> transcription factors
-        cursor.execute('select m.name,tfs.ensembl_id,tfs.preferred,role from biclusters bc join bc_mutation_tf bmt on bc.id=bmt.bicluster_id join mutations m on m.id=bmt.mutation_id join genes tfs on tfs.id=bmt.tf_id where bc.name=%s', [cluster_id])
-        for mutation, tf, tf_preferred, role in cursor.fetchall():
-            tf = tf_preferred if tf_preferred is not None else tf
-            elements.append({"data": {"id": mutation}, "classes": "mutation"})
-            elements.append({"data": {"id": str(edge_count), "source": mutation, "target": tf},
-                                      "classes": MUTATION_REGULATOR_ROLES[role].replace('-', '_') })
-            edge_count += 1
-
-
-        return jsonify(elements=elements)
-    finally:
-        cursor.close()
-        conn.close()
-
-
-@app.route('/bicluster_expressions/<cluster_id>')
-def bicluster_expression_data(cluster_id):
-    """returns data plot data in Highcharts format for bicluster expressions"""
-    """this is actually box plot data, so the series needs to be a list of
-    six tuples [condition_id, min, lower quartile, mean, upper quartile, max]]
-    """
-    conn = dbconn()
-    cursor = conn.cursor()
-    data = []
-    try:
-        cursor.execute('select p.name,median,min_value,max_value,lower_quartile,upper_quartile from bicluster_boxplot_data bbd join patients p on bbd.patient_id=p.id join biclusters bc on bbd.bicluster_id=bc.id where bc.name=%s order by median',
-                       [cluster_id])
-        for patient, median, minval, maxval, lower_quart, upper_quart in cursor.fetchall():
-            data.append([patient, minval, lower_quart, median, upper_quart, maxval])
-        return jsonify(data=data)
-    finally:
-        cursor.close()
-        conn.close()
-
-
-MUTATION_ROLES = {1: 'down-regulates', 2: 'up-regulates'}
-REGULATOR_ROLES = {1: 'activates', 2: 'represses'}
-
-# TODO: This should actually be simply a pregenerated JSON file
-@app.route('/causal_flow')
-def causal_flow():
-    """causal flow"""
-    conn = dbconn()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""select bc.name,mut.name,tfs.name,g.preferred,bmt.role,bc_tf.role_id,bc.cox_hazard_ratio,bgg.num_genes,bc.trans_program from bc_mutation_tf bmt join biclusters bc on bmt.bicluster_id=bc.id join mutations mut on bmt.mutation_id=mut.id join tfs on bmt.tf_id=tfs.id join bc_tf on bc.id=bc_tf.bicluster_id and tfs.id=bc_tf.tf_id join (select bc.id,count(bg.gene_id) as num_genes from biclusters bc join bicluster_genes bg on bc.id=bg.bicluster_id group by bc.id) as bgg on bc.id=bgg.id left join genes g on g.ensembl_id=tfs.name""")
-        return jsonify(entries=[{
-            'regulon': bc,
-            'mutation': mut,
-            'regulator': regulator,
-            'regulator_preferred': tf_preferred if tf_preferred is not None else tf,
-            'mutation_role': MUTATION_ROLES[mut_role],
-            'regulator_role': REGULATOR_ROLES[tf_role],
-            'hazard_ratio': hratio,
-            'num_genes': ngenes,
-            'trans_program': trans_program
-        } for regulon,mut,regulator,tf_preferred,mut_role,tf_role,hratio,ngenes,trans_program in cursor.fetchall()])
-    finally:
-        cursor.close()
-        conn.close()
-
 
 
 if __name__ == '__main__':
