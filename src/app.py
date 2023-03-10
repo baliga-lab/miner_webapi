@@ -7,9 +7,6 @@ import traceback
 from collections import defaultdict
 import mysql.connector
 
-# for mockup
-import random
-
 from flask import Flask, Response, url_for, redirect, render_template, request, session, flash, jsonify
 import flask
 from sqlalchemy import and_
@@ -94,7 +91,7 @@ join trans_programs tp on tp.id=rp.program_id where reg.name=%s""", [regulon])
         conn.close()
 
 
-def _make_causalflow_row(row):
+def _make_causalflow_row(conn, row):
     (cmf_id, regulon, mutation, cmf_type, pathway,
      mutgene_ensembl, mutgene_symbol,
      regulator_ensembl, regulator_symbol, mutation_regulator_role,
@@ -103,6 +100,8 @@ def _make_causalflow_row(row):
      regulon_t_statistic, regulon_log10_p_stratification,
      fraction_edges_correctly_aligned, fraction_aligned_diffexp_edges,
      num_downstream_regulons, num_diffexp_regulons) = row
+
+    # Addon: extract drugs associated with the row according to rules
     return {
         "cmf_id": cmf_id,
         "regulon": regulon,
@@ -126,8 +125,8 @@ def _make_causalflow_row(row):
         "num_diffexp_regulons": num_diffexp_regulons
     }
 
-def _make_causalflow_results(cursor):
-    cm_flows = [_make_causalflow_row(row) for row in cursor.fetchall()]
+def _make_causalflow_results(conn, cursor):
+    cm_flows = [_make_causalflow_row(conn, row) for row in cursor.fetchall()]
     return jsonify(cm_flows=cm_flows)
 
 
@@ -138,7 +137,7 @@ def causalflows_for_regulon(regulon):
     cursor = conn.cursor(buffered=True)
     try:
         cursor.execute("""select cmf_id,r.name,m.name as mutation,cmft.name as cmftype,pw.name as pathway,mg.ensembl_id as mut_ensembl_id,mg.preferred as mut_preferred,tf.ensembl_id as tf_ensembl_id,tf.preferred as tf_preferred,regulon_mutation_regulator_role_id,regulon_mutation_regulator_pvalue,regulon_regulator_spearman_r,regulon_regulator_spearman_pvalue,regulon_t_statistic,regulon_log10_p_stratification,fraction_edges_correctly_aligned,fraction_aligned_diffexp_edges,num_downstream_regulons,num_diffexp_regulons from cm_flows cmf join regulons r on cmf.regulon_id=r.id join mutations m on cmf.mutation_id=m.id join cm_flow_types cmft on cmf.cmf_type_id=cmft.id left outer join cmf_pathways as pw on pw.id=cmf.cmf_pathway_id left outer join genes mg on cmf.mutation_gene_id=mg.id join genes tf on cmf.regulator_id=tf.id where r.name=%s""", [regulon])
-        return _make_causalflow_results(cursor)
+        return _make_causalflow_results(conn, cursor)
     except:
         traceback.print_exc()
     finally:
@@ -153,7 +152,7 @@ def causalflows_for_regulator(regulator):
     cursor = conn.cursor(buffered=True)
     try:
         cursor.execute("""select cmf_id,r.name,m.name as mutation,cmft.name as cmftype,pw.name as pathway,mg.ensembl_id as mut_ensembl_id,mg.preferred as mut_preferred,tf.ensembl_id as tf_ensembl_id,tf.preferred as tf_preferred,regulon_mutation_regulator_role_id,regulon_mutation_regulator_pvalue,regulon_regulator_spearman_r,regulon_regulator_spearman_pvalue,regulon_t_statistic,regulon_log10_p_stratification,fraction_edges_correctly_aligned,fraction_aligned_diffexp_edges,num_downstream_regulons,num_diffexp_regulons from cm_flows cmf join regulons r on cmf.regulon_id=r.id join mutations m on cmf.mutation_id=m.id join cm_flow_types cmft on cmf.cmf_type_id=cmft.id left outer join cmf_pathways as pw on pw.id=cmf.cmf_pathway_id left outer join genes mg on cmf.mutation_gene_id=mg.id join genes tf on cmf.regulator_id=tf.id where tf.ensembl_id=%s or tf.preferred=%s""", [regulator, regulator])
-        return _make_causalflow_results(cursor)
+        return _make_causalflow_results(conn, cursor)
     except:
         traceback.print_exc()
     finally:
@@ -168,7 +167,7 @@ def causalflows_for_program(program):
     cursor = conn.cursor(buffered=True)
     try:
         cursor.execute("""select cmf_id,r.name,m.name as mutation,cmft.name as cmftype,pw.name as pathway,mg.ensembl_id as mut_ensembl_id,mg.preferred as mut_preferred,tf.ensembl_id as tf_ensembl_id,tf.preferred as tf_preferred,regulon_mutation_regulator_role_id,regulon_mutation_regulator_pvalue,regulon_regulator_spearman_r,regulon_regulator_spearman_pvalue,regulon_t_statistic,regulon_log10_p_stratification,fraction_edges_correctly_aligned,fraction_aligned_diffexp_edges,num_downstream_regulons,num_diffexp_regulons from cm_flows cmf join regulons r on cmf.regulon_id=r.id join mutations m on cmf.mutation_id=m.id join cm_flow_types cmft on cmf.cmf_type_id=cmft.id left outer join cmf_pathways as pw on pw.id=cmf.cmf_pathway_id left outer join genes mg on cmf.mutation_gene_id=mg.id join genes tf on cmf.regulator_id=tf.id where r.id in (select regulon_id from regulon_programs rp join trans_programs p on rp.program_id=p.id where p.name=%s)""", [program])
-        return _make_causalflow_results(cursor)
+        return _make_causalflow_results(conn, cursor)
     except:
         traceback.print_exc()
     finally:
@@ -183,7 +182,7 @@ def causalflows_for_mutation(mutation):
     cursor = conn.cursor(buffered=True)
     try:
         cursor.execute("""select cmf_id,r.name,m.name as mutation,cmft.name as cmftype,pw.name as pathway,mg.ensembl_id as mut_ensembl_id,mg.preferred as mut_preferred,tf.ensembl_id as tf_ensembl_id,tf.preferred as tf_preferred,regulon_mutation_regulator_role_id,regulon_mutation_regulator_pvalue,regulon_regulator_spearman_r,regulon_regulator_spearman_pvalue,regulon_t_statistic,regulon_log10_p_stratification,fraction_edges_correctly_aligned,fraction_aligned_diffexp_edges,num_downstream_regulons,num_diffexp_regulons from cm_flows cmf join regulons r on cmf.regulon_id=r.id join mutations m on cmf.mutation_id=m.id join cm_flow_types cmft on cmf.cmf_type_id=cmft.id left outer join cmf_pathways as pw on pw.id=cmf.cmf_pathway_id left outer join genes mg on cmf.mutation_gene_id=mg.id join genes tf on cmf.regulator_id=tf.id where m.name=%s""", [mutation])
-        return _make_causalflow_results(cursor)
+        return _make_causalflow_results(conn, cursor)
     except:
         traceback.print_exc()
     finally:
@@ -198,7 +197,7 @@ def causalflows_with_mutation_in(gene):
     cursor = conn.cursor(buffered=True)
     try:
         cursor.execute("""select cmf_id,r.name,m.name as mutation,cmft.name as cmftype,pw.name as pathway,mg.ensembl_id as mut_ensembl_id,mg.preferred as mut_preferred,tf.ensembl_id as tf_ensembl_id,tf.preferred as tf_preferred,regulon_mutation_regulator_role_id,regulon_mutation_regulator_pvalue,regulon_regulator_spearman_r,regulon_regulator_spearman_pvalue,regulon_t_statistic,regulon_log10_p_stratification,fraction_edges_correctly_aligned,fraction_aligned_diffexp_edges,num_downstream_regulons,num_diffexp_regulons from cm_flows cmf join regulons r on cmf.regulon_id=r.id join mutations m on cmf.mutation_id=m.id join cm_flow_types cmft on cmf.cmf_type_id=cmft.id left outer join cmf_pathways as pw on pw.id=cmf.cmf_pathway_id left outer join genes mg on cmf.mutation_gene_id=mg.id join genes tf on cmf.regulator_id=tf.id where mg.preferred=%s or mg.ensembl_id=%s""", [gene, gene])
-        return _make_causalflow_results(cursor)
+        return _make_causalflow_results(conn, cursor)
     except:
         traceback.print_exc()
     finally:
@@ -222,7 +221,7 @@ def causalflows_for_regulons_containing(gene):
         for regulon_id in regulon_ids:
             cursor.execute("select cmf_id,r.name,m.name as mutation,cmft.name as cmftype,pw.name as pathway,mg.ensembl_id as mut_ensembl_id,mg.preferred as mut_preferred,tf.ensembl_id as tf_ensembl_id,tf.preferred as tf_preferred,regulon_mutation_regulator_role_id,regulon_mutation_regulator_pvalue,regulon_regulator_spearman_r,regulon_regulator_spearman_pvalue,regulon_t_statistic,regulon_log10_p_stratification,fraction_edges_correctly_aligned,fraction_aligned_diffexp_edges,num_downstream_regulons,num_diffexp_regulons from cm_flows cmf join regulons r on cmf.regulon_id=r.id join mutations m on cmf.mutation_id=m.id join cm_flow_types cmft on cmf.cmf_type_id=cmft.id left outer join cmf_pathways as pw on pw.id=cmf.cmf_pathway_id left outer join genes mg on cmf.mutation_gene_id=mg.id join genes tf on cmf.regulator_id=tf.id where r.id=%s", [regulon_id])
             for row in cursor.fetchall():
-                cm_flows.append(_make_causalflow_row(row))
+                cm_flows.append(_make_causalflow_row(conn, row))
         return jsonify(cm_flows=cm_flows)
     except:
         traceback.print_exc()
@@ -493,22 +492,6 @@ def bicluster_expression_data(cluster_id):
     finally:
         cursor.close()
         conn.close()
-
-
-@app.route('/bicluster_enrichment/<cluster_id>')
-def bicluster_enrichment(cluster_id):
-    """returns barplot enrichment data for tumor subtypes in quitiles
-    for the given bicluster"""
-    conn = dbconn()
-    cursor = conn.cursor()
-    subtypes = ['g_cimp', 'proneural', 'neural', 'classical', 'mesenchymal', 'control']
-    # series is gene -> list of values
-    series  = defaultdict(list)
-    # mockup some data for now (3 conditions)
-    for s in subtypes:
-        series[s] = [random.uniform(-10.0, 10.0) for i in range(5)]
-    conds = ['All', 'All', 'All', 'All', 'All']
-    return jsonify(expressions=series, conditions=conds)
 
 
 MUTATION_ROLES = {1: 'down-regulates', 2: 'up-regulates'}

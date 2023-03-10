@@ -267,8 +267,9 @@ def import_type_table(conn, table, values):
                 result[name] = pk
         else:
             for value in values:
-                cur.execute('insert into ' + table + ' (name) values (%s)', [value])
-                result[value] = cur.lastrowid
+                if type(value) == str:  # only import strings, if it is NaN, it's empty
+                    cur.execute('insert into ' + table + ' (name) values (%s)', [value])
+                    result[value] = cur.lastrowid
             conn.commit()
         return result
 
@@ -312,10 +313,16 @@ def import_drugs(conn, df, drug_types, action_types, mechanisms_of_action, targe
                 if np.isnan(max_phase_gbm):
                     max_phase_gbm = None
                 drug_type_id = drug_types[row['drugType']]
-                action_type_id = action_types[row['actionType']]
-                mechanism_of_action_id = mechanisms_of_action[row['mechanismOfAction']]
+                try:
+                    action_type_id = action_types[row['actionType']]
+                except KeyError:
+                    action_type_id = None
+                try:
+                    mechanism_of_action_id = mechanisms_of_action[row['mechanismOfAction']]
+                except KeyError:
+                    mechanism_of_action_id = None
                 target_type_model_id = target_type_models[row['TargetTypeModel']]
-                cur.execute('insert into drugs (name,approved_symbol,approved,max_trial_phase,max_phase_gbm,drug_type_id,action_type_id,target_type_model_id,mechanism_of_action_id) values (%s,%s,%s,%s,%s,%s,%s,%s,%s)', [drug_name, approved_symbol, 1 if is_approved else 0, max_trial_phase, max_phase_gbm, drug_type_id, action_type_id, mechanism_of_action_id, target_type_model_id])
+                cur.execute('insert into drugs (name,approved_symbol,approved,max_trial_phase,max_phase_gbm,drug_type_id,action_type_id,target_type_model_id,mechanism_of_action_id) values (%s,%s,%s,%s,%s,%s,%s,%s,%s)', [drug_name, approved_symbol, 1 if is_approved else 0, max_trial_phase, max_phase_gbm, drug_type_id, action_type_id, target_type_model_id, mechanism_of_action_id])
                 result[drug_name] = cur.lastrowid
             conn.commit()
 
@@ -373,9 +380,10 @@ def import_drug_programs(conn, df, drugs, programs):
                 seen.add(key)
         conn.commit()
 
-
+DRUG_IMPORT_FILE = "Drugs_Mapped_to_Network_for_Portal_Mar_03_2023.csv"
+#DRUG_IMPORT_FILE = "Drugs_Mapped_to_Network_for_Portal.csv"
 def import_drug_data(conn, regulons, programs, genes, args):
-    df = pd.read_csv(os.path.join(args.indir, 'Drugs_Mapped_to_Network_for_Portal.csv'),
+    df = pd.read_csv(os.path.join(args.indir, DRUG_IMPORT_FILE),
                      sep=',', header=0)
     drugs = set(df['Drug'])
     drug_types = import_drug_types(conn, set(df['drugType']))
@@ -468,7 +476,24 @@ def import_cmflows(conn, regulons, mutations, genes, tfs, filename, ens2pref, en
                 # Pathway file does not have mutation gene info
                 mutation_gene_id = None
 
-            regulator_id = genes[row['RegulatorEnsembl']][0]
+            # RegulatorEnsembl can be a mirbase identifier and also not exist in the database
+            # So we need to check for it and insert to the database if it does not exist
+            regulator_ens = row['RegulatorEnsembl']
+            if regulator_ens in genes:
+                regulator_id = genes[regulator_ens][0]
+            else:
+                cur.execute('select count(*) from genes where preferred=%s', [regulator_ens])
+                if cur.fetchone()[0] == 0:
+                    # only insert if it does not exist
+                    cur.execute('insert into genes (preferred,is_regulator) values (%s,1)',
+                                [regulator_ens])  # it is a non-existing symbol
+                    regulator_id = cur.lastrowid
+                    conn.commit()
+                else:
+                    cur.execute("select id from genes where preferred=%s", [regulator_ens])
+                    regulator_id = cur.fetchone()[0]
+                symbol2gene_id[regulator_ens] = regulator_id
+
             regulon_id = regulons["R-%d" % row['Regulon']][0]
             bc_mutation_tf_role_id = 2 if row['MutationRegulatorEdge'] == 1 else 1
             bc_mutation_tf_pvalue = row['-log10(p)_MutationRegulatorEdge']
