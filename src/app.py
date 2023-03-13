@@ -103,7 +103,8 @@ def _make_causalflow_row(conn, row):
 
     # Addon: extract drugs associated with the row according to rules
     drugs = []
-    with conn.cursor() as cur:
+    cur = conn.cursor()
+    try:
         # program related drugs
         #cur.execute("select distinct d.name from drugs d join drug_programs dp on d.id=dp.drug_id join trans_programs p on p.id=dp.program_id join target_type_models ttm on d.target_type_model_id=ttm.id where ttm.name='Regulon_Regulator' and dp.program_id in (select rp.program_id from regulon_programs rp join regulons r on rp.regulon_id=r.id where r.name=%s)", [regulon])
         cur.execute("select distinct d.name from drugs d join drug_regulons dr on d.id=dr.drug_id join regulons r on r.id=dr.regulon_id join target_type_models ttm on d.target_type_model_id=ttm.id where ttm.name='Regulon_Regulator' and r.name=%s", [regulon])
@@ -124,6 +125,9 @@ def _make_causalflow_row(conn, row):
                 drugs.append(row[0])
 
         #cur.execute("select distinct d.name from drugs d join drug_regulons dr on d.id=dr.drug_id join regulons r on r.id=dr.regulon_id join target_type_models ttm on d.target_type_model_id=ttm.id where ttm.name='Regulon_Gene'")
+    finally:
+        cur.close()
+
     return {
         "cmf_id": cmf_id,
         "regulon": regulon,
