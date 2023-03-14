@@ -378,6 +378,36 @@ def program(progname):
         cursor.close()
         conn.close()
 
+
+@app.route('/drug/<drugname>')
+def drug(drugname):
+    """information for the specified drug"""
+    conn = dbconn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+        select d.approved_symbol,d.approved,d.max_trial_phase,d.max_phase_gbm, dt.name as drug_type,at.name as action_type,ttm.name as target_type_model,moa.name as mechanism_of_action from drugs d join drug_types dt on d.drug_type_id=dt.id join action_types at on d.action_type_id=at.id join target_type_models ttm on d.target_type_model_id=ttm.id join mechanisms_of_action moa on d.mechanism_of_action_id=moa.id where d.name=%s""", [drugname])
+
+        drugs = []
+        for (approved_symbol, approved, max_trial_phase, max_phase_gbm,
+             drug_type, action_type, target_type_model, mechanism_of_action
+        ) in cursor.fetchall():
+            drugs.append({
+                "name": drugname,
+                "approved": approved != 0,
+                "max_trial_phase": max_trial_phase if max_trial_phase is not None else 0,
+                "max_phase_gbm": max_phase_gbm if max_phase_gbm is not None else 0,
+                "drug_type": drug_type,
+                "action_type": action_type,
+                "target_type_model": target_type_model,
+                "mechanism_of_action": mechanism_of_action
+            })
+        return jsonify(drug=drugs[0])
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @app.route('/summary')
 def summary():
     """model summary"""
