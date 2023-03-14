@@ -102,7 +102,8 @@ def _make_causalflow_row(conn, row):
      num_downstream_regulons, num_diffexp_regulons) = row
 
     # Addon: extract drugs associated with the row according to rules
-    drugs = []
+    regulator_drugs = []
+    regulon_drugs = []
     cur = conn.cursor()
     try:
         # program related drugs
@@ -110,7 +111,7 @@ def _make_causalflow_row(conn, row):
         cur.execute("select distinct d.name from drugs d join drug_regulons dr on d.id=dr.drug_id join regulons r on r.id=dr.regulon_id join target_type_models ttm on d.target_type_model_id=ttm.id where ttm.name='Regulon_Regulator' and r.name=%s", [regulon])
 
         for row in cur.fetchall():
-            drugs.append(row[0])
+            regulator_drugs.append(row[0])
 
         # regulon related drugs
         #cur.execute("select distinct d.name from drugs d join drug_targets dt on d.id=dt.drug_id join genes g on g.id=dt.gene_id join target_type_models ttm on d.target_type_model_id=ttm.id where ttm.name='Regulon_Gene' and g.id in (select g.id from genes g join regulon_genes rg on g.id=rg.gene_id join regulons r on r.id=rg.regulon_id where r.name=%s)", [regulon])
@@ -122,7 +123,7 @@ def _make_causalflow_row(conn, row):
             print(query)
             cur.execute(query)
             for row in cur.fetchall():
-                drugs.append(row[0])
+                regulon_drugs.append(row[0])
 
         #cur.execute("select distinct d.name from drugs d join drug_regulons dr on d.id=dr.drug_id join regulons r on r.id=dr.regulon_id join target_type_models ttm on d.target_type_model_id=ttm.id where ttm.name='Regulon_Gene'")
     finally:
@@ -149,7 +150,8 @@ def _make_causalflow_row(conn, row):
         "fraction_aligned_diffexp_edges": fraction_aligned_diffexp_edges,
         "num_downstream_regulons": num_downstream_regulons,
         "num_diffexp_regulons": num_diffexp_regulons,
-        "drugs": drugs
+        "regulator_drugs": regulator_drugs,
+        "regulon_drugs": regulon_drugs
     }
 
 def _make_causalflow_results(conn, cursor):
