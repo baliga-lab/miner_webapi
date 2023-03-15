@@ -39,7 +39,6 @@ def regulon_info(regulon):
     cursor = conn.cursor(buffered=True)
     try:
         cursor.execute("select id,cox_hazard_ratio from regulons where name=%s", [regulon])
-        print("REGULON: ", regulon)
         pk, hazard_ratio = cursor.fetchone()
         cursor.execute("select count(*) from cm_flows where regulon_id=%s", [pk])
         num_causalflows = cursor.fetchone()[0]
@@ -120,7 +119,6 @@ def _make_causalflow_row(conn, row):
         if len(gene_ids) > 0:
             gids = "(%s)" % ','.join(gene_ids)
             query = "select distinct d.name from drugs d join drug_targets dt on d.id=dt.drug_id join genes g on g.id=dt.gene_id join target_type_models ttm on d.target_type_model_id=ttm.id where ttm.name='Regulon_Gene' and g.id in " + gids
-            print(query)
             cur.execute(query)
             for row in cur.fetchall():
                 regulon_drugs.append(row[0])
@@ -449,7 +447,6 @@ def gene_info(gene):
             r = requests.get('https://rest.ensembl.org/lookup/id/%s?content-type=application/json;expand=1' % ensembl_id)
             if r.status_code == 200:
                 ensdata = r.json()
-                print(ensdata['description'])
             r = requests.get('https://rest.ensembl.org/xrefs/id/' + ensembl_id +
                              '?content-type=application/json;external_db=uniprot%;all_levels=1')
             if r.status_code == 200:
