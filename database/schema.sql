@@ -20,6 +20,8 @@ drop table if exists target_type_models;
 drop table if exists cm_flow_types;
 drop table if exists cmf_pathways;
 drop table if exists cm_flows;
+drop table if exists hallmarks;
+drop table if exists program_hallmarks;
 
 /* Pathway mutations */
 create table mutations (id integer primary key auto_increment, name varchar(100) not null);
@@ -44,6 +46,15 @@ create table regulon_mutation_regulator_roles (id integer primary key auto_incre
 
 create table regulon_genes (regulon_id integer not null references regulons, gene_id integer not null references genes);
 create table regulon_programs (regulon_id integer not null references regulons, program_id integer not null references trans_programs);
+create table hallmarks (id integer primary key auto_increment, name varchar(100) not null);
+
+create table program_hallmarks (
+  program_id integer not null references trans_programs,
+  hallmark_id integer not null references hallmarks,
+  lin_score float,
+  wang_score float,
+  jiang_score float
+);
 
 create table regulon_mutation_regulator (
   id integer primary key auto_increment,

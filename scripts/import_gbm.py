@@ -226,6 +226,39 @@ def import_transcriptional_programs(conn, regulons, args):
         conn.commit()
     return programs
 
+
+def import_program_hallmarks(conn, programs, args):
+    df = pd.read_csv(os.path.join(args.indir, 'cancerHallmarks_enrichments_in_programs.csv'))
+    hallmark_names = df['hallmark'].unique()
+    cur = conn.cursor()
+    try:
+        # Step 1: insert hallmarks
+        hallmarks = {}
+        cur.execute('select count(*) from hallmarks')
+        if cur.fetchone()[0] > 0:
+            # read hallmarks map
+            cur.execute('select id,name from hallmarks')
+            hallmarks = {name: pk for pk, name in cur.fetchall()}
+        else:
+            for name in hallmark_names:
+                cur.execute('insert into hallmarks (name) values (%s)', [name])
+                hallmarks[name] = cur.lastrowid
+            conn.commit()
+        # step 2: insert program hallmark associations
+        cur.execute('select count(*) from program_hallmarks')
+        if cur.fetchone()[0] == 0:
+            for index, row in df.iterrows():
+                program = 'P-%d' % row['program']
+                hallmark = row['hallmark']
+                lin_score = row['linScore']
+                wang_score = row['wangScore']
+                jiang_score = row['jiangScore']
+                cur.execute('insert into program_hallmarks (program_id,hallmark_id,lin_score,wang_score,jiang_score) values (%s,%s,%s,%s,%s)', [programs[program], hallmarks[hallmark], lin_score, wang_score, jiang_score])
+            conn.commit()
+    finally:
+        cur.close()
+
+
 def import_regulons_programs_genes_disease_mapping(conn,
                                                    regulons, programs, genes,
                                                    args):
@@ -601,6 +634,8 @@ if __name__ == '__main__':
     import_regulon_regulator(conn, df, regulons, regulators)
     import_regulon_genes(conn, df, regulon_map, regulons, genes)
     programs = import_transcriptional_programs(conn, regulons, args)
+
+    import_program_hallmarks(conn, programs, args)
 
     import_regulons_programs_genes_disease_mapping(conn,
                                                    regulons, programs, genes,

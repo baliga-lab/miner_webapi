@@ -32,6 +32,32 @@ def dbconn():
                                    password=app.config['DATABASE_PASSWORD'],
                                    database=app.config['DATABASE_NAME'])
 
+HALLMARK_IMGS = {
+    "Self_Sufficiency_In_Growth_Signals": "self_sufficiency_in_growth_signals.gif",
+    "Insensitivity_To_Antigrowth_Signals": "insensitivity_to_antigrowth_signals.gif",
+    "Evading_Apoptosis": "evading_apoptosis.gif",
+    "Limitless_Replicative_Potential": "limitless_replicative_potential.gif",
+    "Sustained_Angiogenesis": "sustained_angiogenesis.gif",
+    "Tissue_Invasion_And_Metastasis": "tissue_invasion_and_metastasis.gif",
+    "Genome_Instability_And_Mutation": "genome_instability_and_mutation.gif",
+    "Tumor_Promoting_Inflammation": "tumor_promoting_inflammation.gif",
+    "Reprogramming_Energy_Metabolism": "reprogramming_energy_metabolism.gif",
+    "Evading_ImmuneDetection": "evading_immune_detection.gif"
+}
+
+HALLMARK_NAMES = {
+    "Self_Sufficiency_In_Growth_Signals": "Self sufficiency in growth signal",
+    "Insensitivity_To_Antigrowth_Signals": "Insensitivity to antigrowth signal",
+    "Evading_Apoptosis": "Evading apoptosis",
+    "Limitless_Replicative_Potential": "Limitless replicative potential",
+    "Sustained_Angiogenesis": "Sustained angiogenesis",
+    "Tissue_Invasion_And_Metastasis": "Tissue invasion and metastasis",
+    "Genome_Instability_And_Mutation": "Genome instability and mutation",
+    "Tumor_Promoting_Inflammation": "Tumor-promoting inflammation",
+    "Reprogramming_Energy_Metabolism": "Reprogramming energy metabolism",
+    "Evading_ImmuneDetection": "Evading immune detection"
+}
+
 @app.route('/regulon/<regulon>')
 def regulon_info(regulon):
     """all genes in the specified bicluster"""
@@ -63,12 +89,12 @@ join genes g on g.id=bcg.gene_id where bc.name=%s""",
                        [regulon])
         genes = [row[0] for row in cursor.fetchall()]
 
-        # regulon drugs
-        cursor.execute("""select d.name
-from regulons bc join drug_regulons rd on rd.regulon_id=bc.id
-join drugs d on rd.drug_id=d.id where bc.name=%s""",
-                       [regulon])
-        drugs = [row[0] for row in cursor.fetchall()]
+        # Regulon hallmarks
+        cursor.execute("""select distinct h.name from regulon_programs rp join program_hallmarks ph on rp.program_id=ph.program_id join hallmarks h on h.id=ph.hallmark_id join regulons r on rp.regulon_id=rp.regulon_id where r.name=%s and ph.wang_score >= 0.8""", [regulon])
+        hallmarks = [{
+            "name": HALLMARK_NAMES[row[0]],
+            "image": HALLMARK_IMGS[row[0]]
+        } for row in cursor.fetchall()]
 
         # transcriptional programs
         cursor.execute("""select tp.name
@@ -80,7 +106,7 @@ join trans_programs tp on tp.id=rp.program_id where reg.name=%s""", [regulon])
                        hazard_ratio=hazard_ratio,
                        regulon_regulators=regulon_regulators,
                        genes=genes,
-                       drugs=drugs,
+                       hallmarks=hallmarks,
                        program=programs[0],  # for now, just return 1 element, it's actually 1:1
                        num_causal_flows=num_causalflows)
     except:
