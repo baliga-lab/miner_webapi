@@ -60,7 +60,6 @@ HALLMARK_NAMES = {
 
 @app.route('/regulon/<regulon>')
 def regulon_info(regulon):
-    """all genes in the specified bicluster"""
     conn = dbconn()
     cursor = conn.cursor(buffered=True)
     try:
@@ -83,11 +82,21 @@ where bc.name=%s""", [regulon])
             for tf, tf_preferred, role in cursor.fetchall()]
 
         # regulon genes
-        cursor.execute("""select g.preferred
+        cursor.execute("""select g.entrez_id,g.ensembl_id,g.preferred,g.uniprot_id,g.uniprot_function,g.ens_description
 from regulons bc join regulon_genes bcg on bc.id=bcg.regulon_id
 join genes g on g.id=bcg.gene_id where bc.name=%s""",
                        [regulon])
-        genes = [row[0] for row in cursor.fetchall()]
+
+        genes = []
+        for entrez_id, ensembl_id, preferred, uniprot_id, function, description in cursor.fetchall():
+            genes.append({
+                "entrez_id": entrez_id,
+                "ensembl_id": ensembl_id,
+                "preferred": preferred,
+                "uniprot_id": uniprot_id,
+                "function": function,
+                "description": description
+            })
 
         # Regulon hallmarks
         cursor.execute("""select distinct h.name from regulon_programs rp join program_hallmarks ph on rp.program_id=ph.program_id join hallmarks h on h.id=ph.hallmark_id join regulons r on rp.regulon_id=rp.regulon_id where r.name=%s and ph.wang_score >= 0.8""", [regulon])
@@ -115,7 +124,6 @@ join trans_programs tp on tp.id=rp.program_id where reg.name=%s""", [regulon])
         cursor.close()
         conn.close()
 
-
 def _make_causalflow_row(conn, row):
     (cmf_id, regulon, mutation, cmf_type, pathway,
      mutgene_ensembl, mutgene_symbol,
@@ -138,16 +146,7 @@ def _make_causalflow_row(conn, row):
         for row in cur.fetchall():
             regulator_drugs.append(row[0])
 
-        # regulon related drugs
-        #cur.execute("select distinct d.name from drugs d join drug_targets dt on d.id=dt.drug_id join genes g on g.id=dt.gene_id join target_type_models ttm on d.target_type_model_id=ttm.id where ttm.name='Regulon_Gene' and g.id in (select g.id from genes g join regulon_genes rg on g.id=rg.gene_id join regulons r on r.id=rg.regulon_id where r.name=%s)", [regulon])
-        cur.execute("select g.id from genes g join regulon_genes rg on g.id=rg.gene_id join regulons r on r.id=rg.regulon_id where r.name=%s", [regulon])
-        gene_ids = [str(row[0]) for row in cur.fetchall()]
-        if len(gene_ids) > 0:
-            gids = "(%s)" % ','.join(gene_ids)
-            query = "select distinct d.name from drugs d join drug_targets dt on d.id=dt.drug_id join genes g on g.id=dt.gene_id join target_type_models ttm on d.target_type_model_id=ttm.id where ttm.name='Regulon_Gene' and g.id in " + gids
-            cur.execute(query)
-            for row in cur.fetchall():
-                regulon_drugs.append(row[0])
+        regulon_drugs = _query_regulon_drugs(cur, regulon)
 
         #cur.execute("select distinct d.name from drugs d join drug_regulons dr on d.id=dr.drug_id join regulons r on r.id=dr.regulon_id join target_type_models ttm on d.target_type_model_id=ttm.id where ttm.name='Regulon_Gene'")
     finally:
@@ -177,6 +176,39 @@ def _make_causalflow_row(conn, row):
         "regulator_drugs": regulator_drugs,
         "regulon_drugs": regulon_drugs
     }
+
+
+def _query_regulon_drugs(cur, regulon):
+    result = []
+    #cur.execute("select distinct d.name from drugs d join drug_targets dt on d.id=dt.drug_id join genes g on g.id=dt.gene_id join target_type_models ttm on d.target_type_model_id=ttm.id where ttm.name='Regulon_Gene' and g.id in (select g.id from genes g join regulon_genes rg on g.id=rg.gene_id join regulons r on r.id=rg.regulon_id where r.name=%s)", [regulon])
+    cur.execute("select g.id from genes g join regulon_genes rg on g.id=rg.gene_id join regulons r on r.id=rg.regulon_id where r.name=%s", [regulon])
+    gene_ids = [str(row[0]) for row in cur.fetchall()]
+    if len(gene_ids) > 0:
+        gids = "(%s)" % ','.join(gene_ids)
+        query = """select distinct d.name,d.approved_symbol,d.approved,d.max_trial_phase,d.max_phase_gbm
+from drugs d join drug_targets dt on d.id=dt.drug_id join genes g on g.id=dt.gene_id join target_type_models ttm on d.target_type_model_id=ttm.id where ttm.name='Regulon_Gene' and g.id in """ + gids
+        cur.execute(query)
+        for name, approved_symbol, approved, max_trial_phase, max_gbm_phase in cur.fetchall():
+            result.append({
+                "name": name,
+                "approved_symbol": approved_symbol,
+                "max_trial_phase": max_trial_phase,
+                "max_gbm_phase": max_gbm_phase
+            })
+    return result
+
+@app.route('/regulon_drugs/<regulon>')
+def regulon_drugs(regulon):
+    """all drugs for the specified regulon"""
+    conn = dbconn()
+    cursor = conn.cursor(buffered=True)
+    try:
+        regulon_drugs = _query_regulon_drugs(cursor, regulon)
+        return jsonify(drugs=drugs)
+    finally:
+        cursor.close()
+        conn.close()
+
 
 def _make_causalflow_results(conn, cursor):
     cm_flows = [_make_causalflow_row(conn, row) for row in cursor.fetchall()]
@@ -464,40 +496,13 @@ def gene_info(gene):
     conn = dbconn()
     cursor = conn.cursor()
     try:
-        cursor.execute('select entrez_id,ensembl_id,preferred from genes where entrez_id=%s or ensembl_id=%s or preferred=%s',
+        cursor.execute('select entrez_id,ensembl_id,preferred,uniprot_id,uniprot_function,ens_description from genes where entrez_id=%s or ensembl_id=%s or preferred=%s',
                        [gene, gene, gene])
-        results = [(entrez_id, ensembl_id, preferred)
-                   for entrez_id, ensembl_id, preferred in cursor.fetchall()]
+        results = [row for row in cursor.fetchall()]
         if len(results) > 0:
-            ensembl_id = results[0][1]
-            r = requests.get('https://rest.ensembl.org/lookup/id/%s?content-type=application/json;expand=1' % ensembl_id)
-            if r.status_code == 200:
-                ensdata = r.json()
-            r = requests.get('https://rest.ensembl.org/xrefs/id/' + ensembl_id +
-                             '?content-type=application/json;external_db=uniprot%;all_levels=1')
-            if r.status_code == 200:
-                xrefdata = r.json()
-                uniprot_ids = [entry['primary_id'] for entry in xrefdata]
-                if len(uniprot_ids) > 0:
-                    uniprot_id = uniprot_ids[0]
-                else:
-                    uniprot_id = '-'
-            if uniprot_id != '-':
-                # retrieve the function information from UniProt
-                r = requests.get('https://www.uniprot.org/uniprot/%s.xml' % uniprot_id)
-                doc = ET.fromstring(r.text)
-                function = '-'
-                for child in doc:
-                    localname = re.sub(r'{.*}', '', child.tag)
-                    if localname == 'entry':
-                        for c in child:
-                            localname = re.sub(r'{.*}', '', c.tag)
-                            if localname == 'comment' and c.attrib['type'] == 'function':
-                                function = ""
-                                for node in c:
-                                    function += node.text
-            return jsonify(entrez_id=results[0][0], ensembl_id=ensembl_id,
-                           preferred=results[0][2], description=ensdata['description'],
+            entrez_id, ensembl_id, preferred, uniprot_id, function, description = results[0]
+            return jsonify(entrez_id=entrez_id, ensembl_id=ensembl_id,
+                           preferred=preferred, description=description,
                            uniprot_id=uniprot_id, function=function)
         else:
             return jsonify(entrez_id="NA", ensembl_id="NA", preferred="NA", description='NA',

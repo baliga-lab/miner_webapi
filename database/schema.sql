@@ -36,7 +36,11 @@ create table genes (
   entrez_id varchar(80),
   preferred varchar(80),
   is_mutation integer default 0,
-  is_regulator integer default 0
+  is_regulator integer default 0,
+  /* extra information, retrieved from external database and cached for speed */
+  uniprot_id varchar(100),
+  uniprot_function varchar(200),
+  ens_description varchar(4000)
 );
 
 /* create table tfs (id integer primary key auto_increment, name varchar(50) not null, symbol varchar(50)); */
