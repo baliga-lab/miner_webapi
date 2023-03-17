@@ -185,15 +185,25 @@ def _query_regulon_drugs(cur, regulon):
     gene_ids = [str(row[0]) for row in cur.fetchall()]
     if len(gene_ids) > 0:
         gids = "(%s)" % ','.join(gene_ids)
-        query = """select distinct d.name,d.approved_symbol,d.approved,d.max_trial_phase,d.max_phase_gbm
-from drugs d join drug_targets dt on d.id=dt.drug_id join genes g on g.id=dt.gene_id join target_type_models ttm on d.target_type_model_id=ttm.id where ttm.name='Regulon_Gene' and g.id in """ + gids
+        query = """select distinct d.name,d.approved_symbol,d.approved,d.max_trial_phase,d.max_phase_gbm,dtp.name,
+at.name,moa.name
+from drugs d join drug_targets dt on d.id=dt.drug_id join genes g on g.id=dt.gene_id
+join target_type_models ttm on d.target_type_model_id=ttm.id
+join drug_types dtp on dtp.id=d.drug_type_id
+join action_types at on at.id=d.action_type_id
+join mechanisms_of_action moa on moa.id=d.mechanism_of_action_id
+where ttm.name='Regulon_Gene' and g.id in """ + gids
         cur.execute(query)
-        for name, approved_symbol, approved, max_trial_phase, max_gbm_phase in cur.fetchall():
+        for (name, approved_symbol, approved, max_trial_phase,
+             max_gbm_phase, drug_type, action_type, mechanism_of_action) in cur.fetchall():
             result.append({
                 "name": name,
                 "approved_symbol": approved_symbol,
-                "max_trial_phase": max_trial_phase,
-                "max_gbm_phase": max_gbm_phase
+                "max_trial_phase": max_trial_phase if max_trial_phase is not None else 0,
+                "max_gbm_phase": max_gbm_phase if max_gbm_phase is not None else 0,
+                "drug_type": drug_type,
+                "action_type": action_type,
+                "mechanism_of_action": mechanism_of_action
             })
     return result
 
@@ -203,7 +213,7 @@ def regulon_drugs(regulon):
     conn = dbconn()
     cursor = conn.cursor(buffered=True)
     try:
-        regulon_drugs = _query_regulon_drugs(cursor, regulon)
+        drugs = _query_regulon_drugs(cursor, regulon)
         return jsonify(drugs=drugs)
     finally:
         cursor.close()
