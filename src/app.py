@@ -510,7 +510,8 @@ def gene_info(gene):
                        [gene, gene, gene])
         results = [row for row in cursor.fetchall()]
         if len(results) > 0:
-            entrez_id, ensembl_id, preferred, uniprot_id, function, description = results[0]
+            # not that "description" and "function" are currently swapped in the database
+            entrez_id, ensembl_id, preferred, uniprot_id, description, function = results[0]
             return jsonify(entrez_id=entrez_id, ensembl_id=ensembl_id,
                            preferred=preferred, description=description,
                            uniprot_id=uniprot_id, function=function)
