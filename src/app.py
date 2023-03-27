@@ -396,6 +396,23 @@ def mutations():
         conn.close()
 
 
+@app.route('/regulators')
+def regulators():
+    """list of regulators"""
+    conn = dbconn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""select distinct r.ensembl_id,r.preferred,r.entrez_id from genes as r where r.is_regulator=1 order by r.preferred""")
+        result = [{"ensembl": ensembl if ensembl is not None else '-',
+                   "preferred": preferred if preferred is not None else '-',
+                   "entrez": entrez if entrez is not None else '-'}
+                  for ensembl, preferred, entrez in cursor.fetchall()]
+        return jsonify(entries=result)
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @app.route('/regulator/<tf_name>')
 def regulator(tf_name):
     """information for the specified mutation"""
