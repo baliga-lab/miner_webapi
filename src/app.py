@@ -419,7 +419,7 @@ def regulons():
     conn = dbconn()
     cursor = conn.cursor()
     try:
-        cursor.execute("""select distinct r.name,p.name,count(distinct rg.gene_id),count(distinct rr.regulator_id),count(distinct cmf.id) from regulons r join regulon_programs rp on r.id=rp.regulon_id join trans_programs p on p.id=rp.program_id join regulon_genes rg on r.id=rg.regulon_id join regulon_regulator rr on rr.regulon_id=r.id join cm_flows cmf on cmf.regulon_id=r.id group by r.id order by r.name""")
+        cursor.execute("""select distinct r.name,p.name,count(distinct rg.gene_id),count(distinct rr.regulator_id),count(distinct cmf.id) from regulons r join regulon_programs rp on r.id=rp.regulon_id join trans_programs p on p.id=rp.program_id join regulon_genes rg on r.id=rg.regulon_id join regulon_regulator rr on rr.regulon_id=r.id join cm_flows cmf on cmf.regulon_id=r.id group by rg.regulon_id, rr.regulon_id,cmf.regulon_id order by r.name""")
         result = [{"regulon": regulon,
                    "program": program,
                    "num_genes": num_genes,
