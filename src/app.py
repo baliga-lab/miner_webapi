@@ -378,6 +378,24 @@ where m.name=%s""",
         conn.close()
 
 
+@app.route('/mutations')
+def mutations():
+    """list of mutations"""
+    conn = dbconn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""select distinct m.ensembl_id,m.preferred,m.entrez_id,mut.name from genes as m join cm_flows cmf on cmf.mutation_gene_id=m.id join mutations mut on cmf.mutation_id=mut.id where m.is_mutation=1""")
+        result = [{"ensembl": mut_ensembl if mut_ensembl is not None else '-',
+                   "preferred": mut_preferred if mut_preferred is not None else '-',
+                   "entrez": mut_entrez if mut_entrez is not None else '-',
+                   "mutation": mutation}
+                  for mut_ensembl, mut_preferred, mut_entrez, mutation in cursor.fetchall()]
+        return jsonify(entries=result)
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @app.route('/regulator/<tf_name>')
 def regulator(tf_name):
     """information for the specified mutation"""
