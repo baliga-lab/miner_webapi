@@ -432,6 +432,22 @@ def regulons():
         conn.close()
 
 
+@app.route('/programs')
+def programs():
+    """list of programs"""
+    conn = dbconn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""select p.name,count(distinct rp.regulon_id),count(distinct rpg.gene_id) from trans_programs p join regulon_programs rp on rp.program_id=p.id join regulon_program_genes rpg on rpg.program_id=p.id group by rp.program_id""")
+        result = [{"program": program,
+                   "num_regulons": num_regulons,
+                   "num_genes": num_genes}
+                  for program, num_regulons, num_genes in cursor.fetchall()]
+        return jsonify(entries=result)
+    finally:
+        cursor.close()
+        conn.close()
+
 
 @app.route('/regulator/<tf_name>')
 def regulator(tf_name):
