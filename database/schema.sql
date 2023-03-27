@@ -157,3 +157,8 @@ create table cm_flows (
   num_downstream_regulons integer,
   num_diffexp_regulons integer
 );
+
+/* Tune up the queries with these indexes */
+create index regulon_program_idx on regulon_programs (regulon_id,program_id);
+create index regulon_genes_idx on regulon_genes (regulon_id,gene_id);
+create index regulon_regulator_idx on regulon_regulator (regulon_id,regulator_id);
