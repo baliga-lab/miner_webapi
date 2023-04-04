@@ -554,6 +554,7 @@ def import_cmflows(conn, regulons, mutations, genes, tfs, filename, ens2pref, en
                                 bc_t_statistic, bc_log10_p_stratification,
                                 fraction_edges_correctly_aligned, fraction_aligned_diffexp_edges,
                                 num_downstream_regulons, num_diffexp_regulons])
+            conn.commit()
 
 
 DBNAME = 'gbm_api'
@@ -630,6 +631,7 @@ if __name__ == '__main__':
 
     regulators = import_regulators(conn, df, genes, ens2pref, ens2entrez)
     regulons = import_regulons(conn, regulon_map, cox_map, mutations)
+    """
     import_mutation_regulator(conn, df, regulons, mutations, regulators)
     import_regulon_regulator(conn, df, regulons, regulators)
     import_regulon_genes(conn, df, regulon_map, regulons, genes)
@@ -643,7 +645,7 @@ if __name__ == '__main__':
     import_drug_data(conn, regulons, programs, genes, args)
     import_cmflows(conn, regulons, mutations, genes, regulators,
                    "diseaseRelevantCMFlowsGenes.csv", ens2pref, ens2entrez,
-                   False)
+                   False)"""
     import_cmflows(conn, regulons, mutations, genes, regulators,
                    "diseaseRelevantCMFlowsPathways.csv", ens2pref, ens2entrez,
                    True)

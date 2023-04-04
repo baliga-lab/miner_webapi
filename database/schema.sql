@@ -162,4 +162,4 @@ create table cm_flows (
 create index regulon_program_idx on regulon_programs (regulon_id,program_id);
 create index regulon_genes_idx on regulon_genes (regulon_id,gene_id);
 create index regulon_regulator_idx on regulon_regulator (regulon_id,regulator_id);
-create index regulon_program_genes_idx on regulon_program_genes (regulon_id,program_id,gene_id);
+create index rpg_program_idx on regulon_program_genes (program_id);

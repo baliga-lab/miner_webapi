@@ -432,6 +432,34 @@ def regulons():
         conn.close()
 
 
+@app.route('/gene_regulons/<gene>')
+def gene_regulons(gene):
+    """list of regulons for a gene"""
+    conn = dbconn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""select distinct r.name,p.name,count(distinct rg.gene_id),count(distinct rr.regulator_id),count(distinct cmf.id)
+        from regulons r join regulon_programs rp on r.id=rp.regulon_id
+        join trans_programs p on p.id=rp.program_id
+        join regulon_genes rg on r.id=rg.regulon_id
+        join regulon_regulator rr on rr.regulon_id=r.id
+        join cm_flows cmf on cmf.regulon_id=r.id
+        join genes g on g.id=rg.gene_id
+        where g.preferred=%s
+        group by p.id,rg.regulon_id, rr.regulon_id,cmf.regulon_id order by r.name""", [gene])
+
+        result = [{"regulon": regulon,
+                   "program": program,
+                   "num_genes": num_genes,
+                   "num_regulators": num_regulators,
+                   "num_causalflows": num_causalflows}
+                  for regulon, program, num_genes, num_regulators, num_causalflows in cursor.fetchall()]
+        return jsonify(entries=result)
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @app.route('/programs')
 def programs():
     """list of programs"""
