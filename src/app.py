@@ -426,7 +426,7 @@ def regulons():
                    "num_regulators": num_regulators,
                    "num_causalflows": num_causalflows}
                   for regulon, program, num_genes, num_regulators, num_causalflows in cursor.fetchall()]
-        cursor.execute("""select r.name,p.name,count(distinct rg.gene_id),count(distinct rr.regulator_id) from regulons r join regulon_programs rp on r.id=rp.regulon_id join trans_programs p on p.id=rp.program_id left outer join regulon_genes rg on r.id=rg.regulon_id left outer join regulon_regulator rr on rr.regulon_id=r.id where r.name in ('R-3620','R-1450','R-896','R-1377','R-1615','R-3304','R-1342','R-2559','R-2515','R-230') group by p.id,rg.regulon_id, rr.regulon_id order by r.name""")
+        cursor.execute("""select r.name,p.name,count(distinct rg.gene_id),count(distinct rr.regulator_id) from regulons r join regulon_programs rp on r.id=rp.regulon_id join trans_programs p on p.id=rp.program_id left outer join regulon_genes rg on r.id=rg.regulon_id left outer join regulon_regulator rr on rr.regulon_id=r.id where r.name in ('R-3620','R-1450','R-896','R-1377','R-1615','R-3304','R-1342','R-2559','R-2515','R-230') group by r.name,p.name order by r.name""")
         for regulon, program, num_genes, num_regulators in cursor.fetchall():
             result.append({"regulon": regulon,
                            "program": program,
