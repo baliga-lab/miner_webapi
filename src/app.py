@@ -162,7 +162,7 @@ def _make_causalflow_row(conn, row):
         "mutation": mutation,
         "regulator": regulator_ensembl,
         "regulator_preferred": regulator_symbol if regulator_symbol is not None else regulator_ensembl,
-        "regulator_role": REGULATOR_REGULON_ROLES[1 if regulon_regulator_spearman_r < 0 else 2],
+        "regulator_role": REGULATOR_REGULON_ROLES[2 if regulon_regulator_spearman_r < 0 else 1],
         "mutation_role": MUTATION_REGULATOR_ROLES[mutation_regulator_role],
         "regulator_pvalue": regulon_mutation_regulator_pvalue,
         "regulator_spearman_r": regulon_regulator_spearman_r,
